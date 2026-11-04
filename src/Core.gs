@@ -57,10 +57,10 @@ const METHODS_ = Object.freeze([
   { id: 10, name: "Qatar" },
   { id: 11, name: "Majlis Ugama Islam Singapura, Singapore" },
   { id: 12, name: "Union des Organisations Islamiques de France" },
-  { id: 13, name: "Diyanet İşleri Başkanlığı, Turkey" },
+  { id: 13, name: "Diyanet İşleri Başkanlığı, Turkey (experimental)" },
   { id: 14, name: "Spiritual Administration of Muslims of Russia" },
   { id: 15, name: "Moonsighting Committee Worldwide" },
-  { id: 16, name: "Dubai" },
+  { id: 16, name: "Dubai (experimental)" },
   { id: 17, name: "Jabatan Kemajuan Islam Malaysia (JAKIM)" },
   { id: 18, name: "Tunisia" },
   { id: 19, name: "Algeria" },
@@ -568,14 +568,21 @@ function buildGeocodeUrl_(query, count) {
   });
 }
 
-/** Turns an Open-Meteo search response into places. Throws on API errors. */
+/**
+ * Turns an Open-Meteo search response into places. Throws on API errors.
+ * Results also include parks, airports and other features; when the search
+ * found any populated place (GeoNames feature code PPL...), only those are kept.
+ */
 function parseGeocodeResults_(json) {
   if (json && json.error) {
     throw new Error("Location search failed: " + (json.reason || "unknown error"));
   }
-  const results = json && Array.isArray(json.results) ? json.results : [];
-  return results
-    .filter((r) => r && r.name && isFinite(r.latitude) && isFinite(r.longitude))
+  const results = (json && Array.isArray(json.results) ? json.results : []).filter(
+    (r) => r && r.name && isFinite(r.latitude) && isFinite(r.longitude)
+  );
+  const isPlace = (r) => /^PPL/.test(String(r.feature_code || ""));
+  const places = results.some(isPlace) ? results.filter(isPlace) : results;
+  return places
     .map((r) => ({
       name: String(r.name),
       region: r.admin1 ? String(r.admin1) : "",

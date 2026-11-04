@@ -132,8 +132,10 @@ There is no build step. The files in `src/` are the add-on.
   It rejects URLs that are not in the manifest's `urlFetchWhitelist`.
 - `test/flows.test.js` drives the cards like a user (`click`, `change`) with
   `Date` mocked by `node:test`, so the 30-second budget can be tested.
-- Fixtures in `test/fixtures/` are written by hand in the documented formats;
-  they were not captured from the live APIs.
+- `test/fixtures/live/` holds real AlAdhan and Open-Meteo responses captured on
+  4 November 2026; `test/live-fixtures.test.js` parses them. The other fixtures
+  are hand-written edge cases. AlAdhan needs `iso8601=true` (not `1`), and its
+  ISO times past midnight keep the day's own date.
 
 CardService cannot run outside Google. Card rendering, real API responses,
 OAuth scopes and triggers must be tested in Google Calendar with a test

@@ -223,15 +223,18 @@ zones, to show that nothing depends on the time zone of the machine.
   CardService.
 - `test/static.test.js`: the manifest, URL allowlists, scopes, emoji-free text,
   and that the files load in any order.
+- `test/live-fixtures.test.js`: the parsers against real AlAdhan and Open-Meteo
+  responses.
 
 ### What the tests cannot cover
 
 CardService and the other Apps Script services only run inside Google. The
 fakes follow the documented behavior, but they cannot show how a card renders,
-whether Google accepts every widget combination, or how the real APIs respond.
-AlAdhan and Open-Meteo could not be reached while this version was written, so
-the test fixtures follow their documented formats and were not captured from
-the live services. Test the add-on in Google Calendar before relying on it.
+whether Google accepts every widget combination, or how the Calendar API and
+triggers behave. Test the add-on in Google Calendar before relying on it.
+
+The AlAdhan and Open-Meteo parsers are also tested against real responses
+captured on 4 November 2026 (`test/fixtures/live/`, `test/live-fixtures.test.js`).
 
 ## Project layout
 
@@ -249,7 +252,7 @@ test/
   flows.test.js    Flow tests against fakes
   static.test.js   Manifest and source checks
   helpers/         Loader, fakes, synthetic AlAdhan data, time zone helpers
-  fixtures/        Hand-written API responses in the documented formats
+  fixtures/        Real API responses (live/) and hand-written edge cases
 ```
 
 ## License
