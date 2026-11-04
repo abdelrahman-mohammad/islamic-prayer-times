@@ -115,8 +115,7 @@ function suggestPlaceForTimeZone_(timeZone) {
 
 /** Converts a local wall time at the location to an instant. */
 function localToEpoch_(dateText, minutes, timeZone) {
-  const text = dateText + " " + pad2_(Math.floor(minutes / 60)) + ":" + pad2_(minutes % 60);
-  return Utilities.parseDate(text, timeZone, "yyyy-MM-dd HH:mm").getTime();
+  return Utilities.parseDate(localDateTimeText_(dateText, minutes), timeZone, "yyyy-MM-dd HH:mm").getTime();
 }
 
 function todayInZone_(timeZone) {
@@ -140,7 +139,7 @@ function loadPrayerDays_(settings, startDate, endDate) {
   monthsForRange_(startDate, endDate, settings.hijriAdjustment).forEach((m) => {
     days = days.concat(fetchPrayerMonth_(m.year, m.month, settings));
   });
-  days = applyHijriAdjustment_(days, settings.hijriAdjustment);
+  days = applyOffsets_(applyHijriAdjustment_(days, settings.hijriAdjustment), settings.offsets);
   const missing = missingDates_(days, datesBetween_(startDate, endDate));
   if (missing.length) {
     throw userError_("AlAdhan did not return prayer times for " + missing.join(", ") + ". Try again later.");
@@ -160,14 +159,7 @@ function lookUpTimeZone_(location, settings) {
     Object.assign({}, location, { timezone: "" }),
     settings
   );
-  const json = fetchJson_(url, "The prayer times service (AlAdhan)");
-  const first = json && json.code === 200 && Array.isArray(json.data) ? json.data[0] : null;
-  const zone = first && first.meta && first.meta.timezone;
-  if (!zone) {
-    const detail = json && typeof json.data === "string" ? " (" + json.data + ")" : "";
-    throw userError_("Could not find the time zone for these coordinates" + detail + ". Try searching for a nearby city.");
-  }
-  return String(zone);
+  return parseAladhanTimeZone_(fetchJson_(url, "The prayer times service (AlAdhan)"));
 }
 
 /** Fills in the location's time zone if it is missing (version 1 data and coordinates). */
@@ -247,7 +239,7 @@ function uniqueCalendarIds_(ids) {
 }
 
 function isNotFoundError_(err) {
-  return /not found|404|410/i.test(String(err && err.message ? err.message : err));
+  return isNotFoundMessage_(err && err.message ? err.message : err);
 }
 
 /**
@@ -358,9 +350,16 @@ function runCalendarOps_(ops, deadlineMs) {
     const retry = [];
     batch.forEach((item, i) => {
       const response = responses ? responses[i] : null;
+      // Without a response an insert may still have reached Calendar, so it is
+      // not sent again in this run; the next sync lists the calendar first.
       const result = response
         ? classifyCalendarResponse_(item.op, response.getResponseCode(), response.getContentText())
-        : { ok: false, retry: true, stop: false, message: "Google Calendar could not be reached." };
+        : {
+            ok: false,
+            retry: item.op.type !== "insert",
+            stop: false,
+            message: "Google Calendar could not be reached. The next sync checks the new events.",
+          };
       if (result.ok) {
         statuses[item.index] = "done";
       } else if (result.retry && item.attempts + 1 < CALENDAR_MAX_ATTEMPTS_) {

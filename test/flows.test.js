@@ -294,12 +294,67 @@ test("a migrated user who saves Settings keeps their events in the main calendar
   // The calendar dropdown shows the main calendar by its real ID, so any save stores that ID.
   const settingsCard = ui.shownCard(ui.click(home, "Settings"));
   assert.equal(ui.selectedValue(settingsCard, "calendar"), PRIMARY_ID);
-  ui.change(settingsCard, "reminder", "10");
-  assert.equal(settingsOf(env).calendar, PRIMARY_ID);
+  assert.equal(ui.change(settingsCard, "reminder", "10").notification, "Saved. Select Sync now to update your calendar.");
+  ui.change(settingsCard, "calendar", PRIMARY_ID);
+  assert.equal(settingsOf(env).calendar, "primary", "the alias stays when the same calendar is chosen");
   const result = ui.click(settingsCard, "Sync now");
   assert.equal(result.notification, "Calendar updated through 3 Dec: 150 updated.");
   assert.equal(env.appEventsIn(PRIMARY_ID).length, 150);
   assert.equal(ui.click(ui.shownCard(ui.click(settingsCard, "Done")), "Sync now").notification, "Your calendar is up to date through 3 Dec.");
+});
+
+test("migration remembers version 1's calendar if the user picks another one first", (t) => {
+  const env = start(t);
+  env.userProperties.setProperties({
+    latitude: "47.4979", longitude: "19.0402", locationName: "Budapest, Hungary", calendarId: "primary", onboardingComplete: "true",
+  });
+  env.addEvent(PRIMARY_ID, {
+    summary: "Fajr Prayer",
+    start: { dateTime: "2026-11-04T12:30:00Z" },
+    end: { dateTime: "2026-11-04T13:00:00Z" },
+    extendedProperties: { private: { prayerTimeEvent: "true", prayerName: "Fajr" } },
+  });
+  const settingsCard = ui.shownCard(ui.click(onHomepage({}), "Settings"));
+  ui.change(settingsCard, "calendar", "dedicated");
+  ui.click(settingsCard, "Sync now");
+  assert.equal(env.appEventsIn(PRIMARY_ID).length, 0, "version 1's upcoming event is removed from the main calendar");
+  assert.equal(env.appEventsIn(addOnCalendar(env).id).length, 150);
+});
+
+test("a version 1 user who never chose a city gets the suggestions, not version 1's defaults", (t) => {
+  const env = start(t);
+  env.userProperties.setProperties({ method: "2", reminderMinutes: "30", eventDuration: "30", calendarId: "primary", onboardingComplete: "true" });
+  env.scriptProperties.setProperty("GEOAPIFY_API_KEY", "shared-secret");
+  const step1 = onHomepage({});
+  assert.equal(step1.name, "location");
+  assert.equal(env.userProperties.getProperty("method"), null, "the old keys are cleared");
+  assert.equal(env.scriptProperties.getProperty("GEOAPIFY_API_KEY"), null);
+  const step2 = ui.shownCard(ui.click(step1, "Use"));
+  assert.equal(ui.selectedValue(step2, "method"), "3", "the country's method, not version 1's default");
+  assert.equal(ui.selectedValue(step2, "calendar"), "dedicated");
+});
+
+test("finishing setup for a location without a time zone still creates the daily trigger", (t) => {
+  const env = start(t);
+  env.userProperties.setProperties({ latitude: "47.4979", longitude: "19.0402", locationName: "Budapest, Hungary", onboardingComplete: "false" });
+  const step2 = onHomepage({});
+  assert.equal(step2.name, "preferences");
+  ui.change(step2, "autoSync", true);
+  ui.click(step2, "Add to my calendar");
+  assert.equal(settingsOf(env).location.timezone, ZONE, "looked up during the first sync");
+  assert.equal(env.triggers.length, 1);
+  assert.equal(env.triggers[0].spec.timeZone, ZONE);
+});
+
+test("Back on setup step 2 offers to keep the location already chosen", (t) => {
+  const env = start(t);
+  const step2 = ui.shownCard(ui.click(onHomepage({}), "Use"));
+  const step1 = ui.shownCard(ui.click(step2, "Back"));
+  assert.match(ui.cardText(step1), /Current location/);
+  assert.doesNotMatch(ui.cardText(step1), /Suggested location/);
+  const kept = ui.shownCard(ui.click(step1, "Keep"));
+  assert.equal(kept.name, "preferences");
+  assert.equal(settingsOf(env).location.name, "Budapest");
 });
 
 test("search results show city, region and country, and the country picks the method", (t) => {
@@ -399,11 +454,30 @@ test("a long first sync stops in time and the next sync finishes it", (t) => {
 test("rate-limited calendar writes are retried with backoff", (t) => {
   const env = start(t);
   const rateLimit = JSON.stringify({ error: { code: 403, message: "Rate Limit Exceeded", errors: [{ reason: "rateLimitExceeded" }] } });
-  env.fail(/calendar\/v3\/calendars\/[^/]+\/events/, [{ code: 403, body: rateLimit }, { code: 429 }, { code: 503 }]);
+  env.fail(/calendar\/v3\/calendars\/[^/]+\/events/, [{ code: 403, body: rateLimit }, { code: 429 }, { code: 429 }]);
   const { done } = completeSetup(env);
   assert.equal(done.notification, "Calendar updated through 3 Dec: 150 added.");
   assert.equal(env.appEventsIn(addOnCalendar(env).id).length, 150);
   assert.ok(env.sleptMs >= 1000);
+});
+
+test("new events are not sent twice when Calendar's answer is lost", (t) => {
+  const env = start(t);
+  env.fetchAllThrows = 1; // the first batch reaches Calendar, but the script gets an exception
+  const { done, home } = completeSetup(env);
+  assert.match(done.notification, /Some changes are not done yet/);
+  const calendar = addOnCalendar(env);
+  assert.equal(env.appEventsIn(calendar.id).length, 150, "the lost batch was applied once, not retried");
+  // A 503 on an insert is not retried in the same run either.
+  env.fail(/calendar\/v3\/calendars\/[^/]+\/events/, [{ code: 503 }]);
+  ui.change(ui.shownCard(ui.click(home, "Settings")), "prayers", ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"]);
+  const next = ui.click(home, "Sync now");
+  assert.match(next.notification, /did not confirm some changes/);
+  const finished = ui.click(ui.shownCard(next), "Sync now");
+  assert.match(finished.notification, /^Calendar updated through 3 Dec: 1 added/);
+  assert.equal(env.appEventsIn(calendar.id).length, 180, "no duplicates");
+  const keys = env.appEventsIn(calendar.id).map((e) => e.extendedProperties.private.prayerDate + e.summary);
+  assert.equal(new Set(keys).size, 180);
 });
 
 test("Calendar's daily limit stops the sync with a clear message", (t) => {
@@ -414,6 +488,7 @@ test("Calendar's daily limit stops the sync with a clear message", (t) => {
   assert.match(done.notification, /Some changes are not done yet/);
   assert.match(done.notification, /Google Calendar's limit for adding events was reached\. Try again in a few hours\./);
   assert.ok(env.appEventsIn(addOnCalendar(env).id).length < 150);
+  assert.match(ui.cardText(ui.shownCard(done)), /The last sync did not finish\. Select Sync now to finish it\./);
 });
 
 test("moving to another calendar moves the upcoming events, and Remove clears every calendar", (t) => {
@@ -497,10 +572,33 @@ test("reset clears the settings, keeps the events and starts setup again", (t) =
   assert.equal(reset.notification, "Prayer Times was reset.");
   assert.deepEqual(reset.navigation.map((op) => op.op), ["popToRoot", "updateCard"]);
   assert.equal(ui.shownCard(reset).name, "location");
-  assert.equal(env.userProperties.getProperty("settings.v2"), null);
+  const kept = settingsOf(env);
+  assert.equal(kept.setupComplete, false);
+  assert.equal(kept.location, null);
+  assert.equal(kept.dedicatedCalendarId, addOnCalendar(env).id, "the record of the add-on's calendar is kept");
   assert.equal(env.triggers.length, 0);
   assert.equal(env.appEventsIn(addOnCalendar(env).id).length, 150);
   assert.equal(onHomepage({}).name, "location");
+
+  // Setting up again reuses the same calendar, so nothing is duplicated.
+  const again = completeSetup(env);
+  assert.equal(again.done.notification, "Your calendar is up to date through 3 Dec.");
+  assert.equal([...env.calendars.values()].filter((c) => c.createdByAddOn).length, 1);
+  assert.equal(env.appEventsIn(addOnCalendar(env).id).length, 150);
+});
+
+test("after a reset, setting up again in the main calendar duplicates nothing and Remove finds every event", (t) => {
+  const env = start(t);
+  completeSetup(env, { calendar: PRIMARY_ID });
+  const settingsCard = ui.shownCard(ui.click(onHomepage({}), "Settings"));
+  ui.click(ui.shownCard(ui.click(settingsCard, "Reset add-on")), "Reset");
+  assert.deepEqual(stateOf(env).calendarIds, [PRIMARY_ID], "the record of used calendars is kept");
+  const { done, home } = completeSetup(env, { calendar: PRIMARY_ID });
+  assert.equal(done.notification, "Your calendar is up to date through 3 Dec.");
+  assert.equal(env.appEventsIn(PRIMARY_ID).length, 150);
+  const removed = ui.click(ui.shownCard(ui.click(ui.shownCard(ui.click(home, "Settings")), "Remove prayer events")), "Remove events");
+  assert.equal(removed.notification, "Removed 150 events. Automatic updates are off.");
+  assert.equal(env.appEventsIn(PRIMARY_ID).length, 0);
 });
 
 test("the daily trigger keeps the window filled and records failures instead of throwing", (t) => {
@@ -573,7 +671,8 @@ test("Jumu'ah at a fixed time, busy events, no reminder and Hanafi Asr reach the
   const fajr = events.find((e) => e.extendedProperties.private.prayerDate === "2026-11-04" && e.summary === "Fajr");
   assert.equal(fajr.start.dateTime, toRfc3339_(tz.localToEpoch("2026-11-04", 5 * 60 + 12 + 2, ZONE)), "tune moves Fajr");
   const aladhanUrls = env.requests.filter((r) => r.url.includes("api.aladhan.com")).map((r) => r.url);
-  assert.ok(aladhanUrls.some((url) => /school=1/.test(url) && /tune=2%2C2%2C/.test(url)));
+  assert.ok(aladhanUrls.some((url) => /school=1/.test(url)));
+  assert.ok(aladhanUrls.every((url) => !/tune=/.test(url)), "adjustments are applied locally");
 });
 
 test("a second sync running at the same time is refused", (t) => {

@@ -31,6 +31,8 @@ function syncCalendar_(budgetMs) {
     let settings = loadSettings_();
     if (!settings.location) throw userError_("Choose your location first.");
     settings = ensureLocationTimeZone_(settings);
+    // The settings the events are built from. A change saved after this is still pending at the end.
+    const used = settings;
     const zone = settings.location.timezone;
     const prefs = getCalendarPrefs_();
     const window = syncWindow_(todayInZone_(zone), settings.daysAhead);
@@ -39,7 +41,10 @@ function syncCalendar_(budgetMs) {
 
     const dedicated = settings.calendar === DEDICATED_CALENDAR_;
     let calendarId = canonicalCalendarId_(dedicated ? ensureDedicatedCalendar_(settings) : settings.calendar);
-    const timeMin = toRfc3339_(localToEpoch_(window.start, 0, zone));
+    // List from a day early: after a move west, today's events made for the old
+    // place can end before midnight here. planSync_ leaves older events alone.
+    window.startMs = localToEpoch_(window.start, 0, zone);
+    const timeMin = toRfc3339_(localToEpoch_(addDays_(window.start, -1), 0, zone));
     let existing = listAddOnEvents_(calendarId, timeMin);
     if (existing === null && dedicated) {
       console.log("The Prayer Times calendar was deleted; creating a new one.");
@@ -47,7 +52,7 @@ function syncCalendar_(budgetMs) {
       existing = [];
     }
     if (existing === null) throw userError_("The calendar chosen in Settings no longer exists. Choose another one.");
-    settings = loadSettings_();
+    const current = loadSettings_();
 
     // Calendars used before: their upcoming events move to the current calendar.
     const known = uniqueCalendarIds_(loadState_().calendarIds).filter((id) => id !== calendarId);
@@ -69,10 +74,10 @@ function syncCalendar_(budgetMs) {
       lastSyncAt: new Date().toISOString(),
       syncedThrough: summary.syncedThrough || "",
       calendarId: calendarId,
-      calendarName: calendarDisplayName_(calendarId, settings),
+      calendarName: calendarDisplayName_(calendarId, current),
       calendarIds: stillThere,
       // A setting changed while this sync ran is not in the calendar yet.
-      pendingChanges: settingsAffectEvents_(settings, loadSettings_()),
+      pendingChanges: settingsAffectEvents_(used, loadSettings_()),
       lastError: run.errors.length ? run.errors[0] : summary.complete ? "" : "The last sync did not finish.",
     }));
     return Object.assign({ errors: run.errors }, summary);

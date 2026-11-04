@@ -109,6 +109,32 @@ test("toQueryString_ skips empty values and encodes the rest", () => {
   assert.equal(toQueryString_({ a: 1, b: "", c: null, d: undefined, e: "Europe/Budapest", f: 0 }), "a=1&e=Europe%2FBudapest&f=0");
 });
 
+test("localDateTimeText_ writes the text Utilities.parseDate reads", () => {
+  assert.equal(localDateTimeText_("2026-11-04", 0), "2026-11-04 00:00");
+  assert.equal(localDateTimeText_("2026-11-04", 5 * 60 + 7), "2026-11-04 05:07");
+  assert.equal(localDateTimeText_("2026-11-04", 1439), "2026-11-04 23:59");
+  assert.throws(() => localDateTimeText_("2026-11-04", 1440), /Invalid minutes/);
+  assert.throws(() => localDateTimeText_("2026-11-04", 1.5), /Invalid minutes/);
+  assert.throws(() => localDateTimeText_("04-11-2026", 0), /Invalid date/);
+});
+
+test("isNotFoundMessage_ recognises a missing calendar", () => {
+  assert.equal(isNotFoundMessage_("GoogleJsonResponseException: API call to calendar.events.list failed with error: Not Found"), true);
+  assert.equal(isNotFoundMessage_("API call failed with error: Resource has been deleted"), true);
+  assert.equal(isNotFoundMessage_("Request failed: 404"), true);
+  assert.equal(isNotFoundMessage_("API call failed with error: Forbidden"), false);
+  assert.equal(isNotFoundMessage_("calendar 4041@group.calendar.google.com is busy"), false);
+  assert.equal(isNotFoundMessage_(undefined), false);
+});
+
+test("minutesLabel_ writes minutes and hours", () => {
+  assert.equal(minutesLabel_(1), "1 minute");
+  assert.equal(minutesLabel_(15), "15 minutes");
+  assert.equal(minutesLabel_(60), "1 hour");
+  assert.equal(minutesLabel_(120), "2 hours");
+  assert.equal(minutesLabel_(90), "90 minutes");
+});
+
 test("chunk_ splits lists", () => {
   assert.deepEqual(chunk_([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   assert.deepEqual(chunk_([], 3), []);

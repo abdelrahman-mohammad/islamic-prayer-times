@@ -56,22 +56,29 @@ There is no build step. The files in `src/` are the add-on.
    missing (version 1 data and pasted coordinates).
 2. Window: today in the location's time zone plus `daysAhead - 1` days.
 3. Fetch the months that cover the window from AlAdhan (cached for 6 hours),
-   apply the Hijri adjustment, and stop if any day is missing, so missing data
-   never deletes events.
+   apply the Hijri adjustment and the user's minute adjustments
+   (`applyOffsets_`), and stop if any day is missing, so missing data never
+   deletes events. Adjustments are never sent as AlAdhan's `tune` parameter:
+   some methods carry their own tune values, which it would replace.
 4. `buildDesiredEvents_` makes one spec per event: key `date|slot`, title, exact
    start and end instants, description, reminder, transparency, and a content
    hash (`sig`).
-5. List the add-on's events from the window start on with
-   `privateExtendedProperty=prayerTimeEvent=true`, in the target calendar and in
-   calendars used before.
+5. List the add-on's events with `privateExtendedProperty=prayerTimeEvent=true`,
+   from a day before the window (after a move west, today's events for the old
+   place can end before midnight here), in the target calendar and in calendars
+   used before.
 6. `planSync_` compares the two lists: insert what is missing, update what has a
    different `sig`, delete duplicates and unwanted events, delete version 1
-   events (tagged but without `prayerDate`) in the window, and delete upcoming
-   events in calendars no longer used. Events before the window are history and
-   are never touched by a sync.
+   events (tagged but without `prayerDate`) from the window's first midnight
+   on, and delete upcoming events in calendars no longer used. Events before
+   the window are history and are never touched by a sync.
 7. `runCalendarOps_` runs the plan ten requests at a time until about 22 seconds
-   have passed (card actions must answer within 30 seconds), and
-   `summarizeSync_` reports how far the calendar is complete.
+   have passed (card actions must answer within 30 seconds). Rate-limited
+   requests are retried. An insert answered with a 5xx, or lost in a failed
+   `fetchAll`, is not sent again in the same run, because it may have been
+   applied; the next sync lists the calendar first. `summarizeSync_` reports
+   how far the calendar is complete: `syncedThrough` stops before the first day
+   with a missing insert.
 
 ## Rules for changes
 
@@ -99,8 +106,13 @@ There is no build step. The files in `src/` are the add-on.
   `handleAction_`, so an error becomes a notification. A form that saves must
   list its fields in the action's `fields` parameter, because unchecked switches
   and empty checkbox groups are not sent at all.
-- Settings save on change (`onSettingChange`); there is no Save button. A change
-  that affects events sets `pendingChanges`, and the home card asks for a sync.
+- Settings save on change (`onSettingChange`); there is no Save button. Each
+  input's on-change action lists only its own field and keeps the default
+  spinner, so saves cannot overlap or overwrite each other. Footer buttons list
+  every field. A change that affects events sets `pendingChanges`, and the home
+  card asks for a sync.
+- Reset keeps `dedicatedCalendarId` and the list of calendars used, so a new
+  setup does not create a second Prayer Times calendar.
 - "primary" is another name for the user's main calendar. Compare calendar IDs
   only after `canonicalCalendarId_`.
 - No emojis in UI text, code or docs. `test/static.test.js` and the fake

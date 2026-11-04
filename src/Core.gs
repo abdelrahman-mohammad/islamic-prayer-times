@@ -36,6 +36,8 @@ const TAG_ = Object.freeze({
 
 /** Times read from each AlAdhan day. */
 const TIMING_NAMES_ = Object.freeze(["Imsak", "Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"]);
+const BEFORE_DHUHR_ = Object.freeze(["Imsak", "Fajr", "Sunrise"]);
+const AFTER_DHUHR_ = Object.freeze(["Asr", "Maghrib", "Isha"]);
 
 /** Events the user can choose, in the order they happen during the day. */
 const DAILY_EVENTS_ = Object.freeze(["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"]);
@@ -404,17 +406,25 @@ function toRfc3339_(epochMs) {
 // ---------------------------------------------------------------------------
 
 /**
- * AlAdhan's tune parameter: minute offsets in the order
- * Imsak, Fajr, Sunrise, Dhuhr, Asr, Maghrib, Sunset, Isha, Midnight.
- * Imsak follows Fajr so the gap between them stays the same.
+ * Adds the user's minute adjustments to parsed days. Imsak moves with Fajr,
+ * so the gap between them stays the same. This is done here rather than with
+ * AlAdhan's tune parameter, because some methods (Turkey, Dubai, Morocco,
+ * Lisbon, Umm Al-Qura) carry their own tune values, and a tune parameter
+ * from the add-on would replace them instead of adding to them.
  */
-function buildTuneParam_(offsets) {
+function applyOffsets_(days, offsets) {
   const o = offsets || {};
-  const value = (name) => clampOffset_(o[name]);
-  return [
-    value("Fajr"), value("Fajr"), value("Sunrise"), value("Dhuhr"), value("Asr"),
-    value("Maghrib"), 0, value("Isha"), 0,
-  ].join(",");
+  const offsetFor = (name) => clampOffset_(o[name === "Imsak" ? "Fajr" : name]);
+  if (!TIMING_NAMES_.some((name) => offsetFor(name) !== 0)) return days;
+  return days.map((day) => {
+    const times = {};
+    TIMING_NAMES_.forEach((name) => {
+      const minutes = offsetFor(name);
+      const t = day.times[name];
+      times[name] = { minutes: (((t.minutes + minutes) % 1440) + 1440) % 1440, epochMs: t.epochMs + minutes * 60000 };
+    });
+    return Object.assign({}, day, { times: times });
+  });
 }
 
 function clampOffset_(value) {
@@ -435,7 +445,6 @@ function buildAladhanMonthUrl_(year, month, location, settings) {
     method: settings.method,
     school: settings.school,
     latitudeAdjustmentMethod: settings.highLatitudeRule,
-    tune: buildTuneParam_(settings.offsets),
     timezonestring: location.timezone || "",
     iso8601: "true",
   };
@@ -470,16 +479,23 @@ function parseAladhanDay_(entry, localToEpoch) {
     if (!parsed) throw new Error("AlAdhan returned no " + name + " time for " + date + ".");
     times[name] = { minutes: parsed.minutes, epochMs: parsed.epochMs, isoDate: parsed.isoDate };
   });
-  // Without an offset in the response, convert local wall times here. Isha can
-  // fall after midnight at high latitudes; it is then on the next calendar day.
+  // At high latitudes Maghrib and Isha can fall after midnight, and with some
+  // rules Imsak and Fajr before it. Dhuhr is always at midday of the date, so a
+  // time on the wrong side of Dhuhr belongs to the next or the previous day.
+  const dhuhr = times.Dhuhr.minutes;
   TIMING_NAMES_.forEach((name) => {
     const t = times[name];
+    let shift = 0;
+    if (BEFORE_DHUHR_.indexOf(name) !== -1 && t.minutes > dhuhr) shift = -1;
+    if (AFTER_DHUHR_.indexOf(name) !== -1 && t.minutes < dhuhr) shift = 1;
     if (t.epochMs === null) {
       if (typeof localToEpoch !== "function" || !timeZone) {
         throw new Error("AlAdhan returned times without a time zone.");
       }
-      const afterMidnight = name === "Isha" && t.minutes < times.Maghrib.minutes;
-      t.epochMs = localToEpoch(afterMidnight ? addDays_(date, 1) : date, t.minutes, timeZone);
+      t.epochMs = localToEpoch(addDays_(date, shift), t.minutes, timeZone);
+    } else if (shift !== 0 && t.isoDate === date) {
+      // The ISO time carries the day's own date although it is past midnight.
+      t.epochMs += shift * 86400000;
     }
     delete t.isoDate;
   });
@@ -796,10 +812,14 @@ const LEGACY_KEYS_ = Object.freeze([
  * Returns null when there is nothing to migrate. Version 1 turned a 0-minute
  * reminder into 30 minutes at sync time; here 0 stays 0.
  */
+function hasLegacySettings_(props) {
+  const p = props || {};
+  return LEGACY_KEYS_.some((key) => p[key] !== undefined && p[key] !== null && p[key] !== "");
+}
+
 function migrateLegacySettings_(props, hadDailyTrigger) {
   const p = props || {};
-  const hasAny = LEGACY_KEYS_.some((key) => p[key] !== undefined && p[key] !== null && p[key] !== "");
-  if (!hasAny) return null;
+  if (!hasLegacySettings_(p)) return null;
   const settings = defaultSettings_();
   const latitude = Number(p.latitude);
   const longitude = Number(p.longitude);
@@ -814,6 +834,9 @@ function migrateLegacySettings_(props, hadDailyTrigger) {
       timezone: "",
     });
   }
+  // Version 1 wrote every key with its defaults on any save, even before a city
+  // was chosen. Without a location none of the values was a real choice.
+  if (!settings.location) return null;
   const method = parseWholeNumber_(p.method);
   if (METHODS_.some((m) => m.id === method)) {
     settings.method = method;
@@ -992,14 +1015,16 @@ function scheduleForDay_(day, settings) {
  * at the given days in order. Returns {title, minutes, epochMs, date} or null.
  */
 function findNextPrayer_(days, settings, nowMs) {
-  for (let i = 0; i < days.length; i++) {
-    const day = days[i];
-    for (let j = 0; j < OBLIGATORY_PRAYERS_.length; j++) {
-      const time = eventTimeForDay_(day, OBLIGATORY_PRAYERS_[j], settings);
-      if (time.epochMs > nowMs) return Object.assign({ date: day.date }, time);
-    }
-  }
-  return null;
+  // The earliest prayer after now, not the first in slot order: yesterday's
+  // Isha can fall after midnight at high latitudes, before today's Fajr.
+  let next = null;
+  days.forEach((day) => {
+    OBLIGATORY_PRAYERS_.forEach((slot) => {
+      const time = eventTimeForDay_(day, slot, settings);
+      if (time.epochMs > nowMs && (!next || time.epochMs < next.epochMs)) next = Object.assign({ date: day.date }, time);
+    });
+  });
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,6 +1167,14 @@ function eventResource_(spec) {
   return resource;
 }
 
+/** True when the event starts before the instant. False when either is unknown. */
+function startsBefore_(event, instantMs) {
+  if (!instantMs) return false;
+  const start = event && event.start && (event.start.dateTime || event.start.date);
+  const startMs = start ? Date.parse(start) : NaN;
+  return isFinite(startMs) && startMs < instantMs;
+}
+
 function eventTags_(event) {
   return (event && event.extendedProperties && event.extendedProperties.private) || {};
 }
@@ -1151,8 +1184,11 @@ function eventTags_(event) {
  *
  * existing: the add-on's events in the target calendar from the window start on.
  * others: [{calendarId, events}] for calendars the add-on used before.
+ * window: {start, end} dates, and optionally startMs, the instant of the
+ * window's first midnight.
  * Only events tagged prayerTimeEvent=true are ever touched. Events dated
- * before the window are history and are left alone.
+ * before the window are history and are left alone; so are version 1 events
+ * (no date tag) that start before startMs.
  *
  * Returns ops in the order to run them: per day, deletes, updates, then
  * inserts, so a partial run leaves whole days done. Version 1 events come first
@@ -1175,7 +1211,9 @@ function planSync_(desired, existing, others, window, targetCalendarId) {
     const tags = eventTags_(event);
     if (tags[TAG_.app] !== "true" || !event.id) return;
     if (!tags[TAG_.date]) {
-      legacy.push({ type: "delete", calendarId: targetCalendarId, eventId: event.id, date: null, reason: "legacy" });
+      if (!startsBefore_(event, window.startMs)) {
+        legacy.push({ type: "delete", calendarId: targetCalendarId, eventId: event.id, date: null, reason: "legacy" });
+      }
       return;
     }
     if (tags[TAG_.date] < window.start) return;
@@ -1230,7 +1268,7 @@ function planSync_(desired, existing, others, window, targetCalendarId) {
     (other.events || []).forEach((event) => {
       const tags = eventTags_(event);
       if (tags[TAG_.app] !== "true" || !event.id || targetEventIds[event.id]) return;
-      if (tags[TAG_.date] && tags[TAG_.date] < window.start) return;
+      if (tags[TAG_.date] ? tags[TAG_.date] < window.start : startsBefore_(event, window.startMs)) return;
       ops.push({ type: "delete", calendarId: other.calendarId, eventId: event.id, date: null, reason: "moved" });
     });
   });
@@ -1293,8 +1331,18 @@ function classifyCalendarResponse_(op, code, bodyText) {
     message = "";
   }
   const rateLimited = code === 429 || (code === 403 && /rateLimitExceeded|userRateLimitExceeded/.test(reason));
-  if (rateLimited || code >= 500) {
+  if (rateLimited) {
+    // Rejected before it was applied, so even an insert is safe to send again.
     return { ok: false, retry: true, stop: false, message: message || "Google Calendar is busy (HTTP " + code + ")." };
+  }
+  if (code >= 500) {
+    // The request may have been applied. Sending an insert again could create the event twice.
+    return {
+      ok: false,
+      retry: op.type !== "insert",
+      stop: false,
+      message: "Google Calendar did not confirm some changes (HTTP " + code + "). The next sync checks them.",
+    };
   }
   if (code === 403 && /quotaExceeded/.test(reason)) {
     return {
@@ -1334,10 +1382,12 @@ function summarizeSync_(ops, statuses, window) {
     }
     if (status === "failed") summary.failed++;
     else summary.pending++;
-    if (op.date) {
-      if (firstIncompleteDate === null || op.date < firstIncompleteDate) firstIncompleteDate = op.date;
-    } else {
+    if (!op.date) {
       otherIncomplete = true;
+    } else if (op.type === "insert") {
+      // Only a missing insert leaves a day without its events; an update or
+      // delete that did not run leaves them there, just not up to date.
+      if (firstIncompleteDate === null || op.date < firstIncompleteDate) firstIncompleteDate = op.date;
     }
   });
   summary.complete = summary.failed === 0 && summary.pending === 0;
@@ -1367,6 +1417,36 @@ function describeChanges_(summary) {
   if (summary.updated) parts.push(summary.updated + " updated");
   if (summary.deleted) parts.push(summary.deleted + " removed");
   return parts.join(", ");
+}
+
+/** "yyyy-MM-dd HH:mm" text for Utilities.parseDate. */
+function localDateTimeText_(dateText, minutes) {
+  parseIsoDate_(dateText);
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes >= 1440) throw new Error("Invalid minutes: " + minutes);
+  return dateText + " " + pad2_(Math.floor(minutes / 60)) + ":" + pad2_(minutes % 60);
+}
+
+/**
+ * The time zone AlAdhan reports for coordinates (meta.timezone), from a
+ * calendar response. Throws a user error when there is none.
+ */
+function parseAladhanTimeZone_(json) {
+  const first = json && json.code === 200 && Array.isArray(json.data) ? json.data[0] : null;
+  const zone = first && first.meta && first.meta.timezone;
+  if (zone) return String(zone);
+  const detail = json && typeof json.data === "string" ? " (" + json.data + ")" : "";
+  throw userError_("Could not find the time zone for these coordinates" + detail + ". Try searching for a nearby city.");
+}
+
+/** True for the "not found" and "gone" errors the Calendar service throws for a missing calendar. */
+function isNotFoundMessage_(text) {
+  return /\bnot found\b|\b404\b|\b410\b|\bgone\b|resource has been deleted/i.test(String(text || ""));
+}
+
+/** "5 minutes", "1 minute", "1 hour", "2 hours". */
+function minutesLabel_(minutes) {
+  if (minutes >= 60 && minutes % 60 === 0) return minutes / 60 + (minutes === 60 ? " hour" : " hours");
+  return minutes + (minutes === 1 ? " minute" : " minutes");
 }
 
 /** Splits a list into chunks of at most `size` items. */

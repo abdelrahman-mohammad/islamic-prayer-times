@@ -12,14 +12,23 @@ loadAddOn();
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const budapest = { name: "Budapest", latitude: 47.4984, longitude: 19.0405, timezone: "Europe/Budapest" };
 
-test("buildTuneParam_ follows AlAdhan's order and moves Imsak with Fajr", () => {
-  assert.equal(buildTuneParam_({}), "0,0,0,0,0,0,0,0,0");
-  assert.equal(
-    buildTuneParam_({ Fajr: 2, Sunrise: -1, Dhuhr: 3, Asr: 4, Maghrib: 5, Isha: -6 }),
-    "2,2,-1,3,4,5,0,-6,0"
-  );
-  assert.equal(buildTuneParam_({ Fajr: 500, Isha: -500, Asr: "x" }), "60,60,0,0,0,0,0,-60,0");
-  assert.equal(buildTuneParam_(undefined), "0,0,0,0,0,0,0,0,0");
+test("applyOffsets_ adds minutes locally and moves Imsak with Fajr", () => {
+  const days = parseAladhanCalendar_(isoFixture);
+  assert.equal(applyOffsets_(days, {}), days, "no offsets, no copy");
+  assert.equal(applyOffsets_(days, undefined), days);
+  const moved = applyOffsets_(days, { Fajr: 2, Sunrise: -1, Asr: 4, Isha: -6 });
+  const before = days[0].times;
+  const after = moved[0].times;
+  assert.deepEqual(after.Fajr, { minutes: before.Fajr.minutes + 2, epochMs: before.Fajr.epochMs + 2 * 60000 });
+  assert.deepEqual(after.Imsak, { minutes: before.Imsak.minutes + 2, epochMs: before.Imsak.epochMs + 2 * 60000 });
+  assert.equal(after.Sunrise.epochMs, before.Sunrise.epochMs - 60000);
+  assert.deepEqual(after.Dhuhr, before.Dhuhr);
+  assert.equal(after.Isha.minutes, before.Isha.minutes - 6);
+  assert.equal(days[0].times.Fajr.minutes, before.Fajr.minutes, "the input is not changed");
+  const clamped = applyOffsets_(days, { Fajr: 500 });
+  assert.equal(clamped[0].times.Fajr.epochMs, before.Fajr.epochMs + 60 * 60000, "at most 60 minutes");
+  const wrap = applyOffsets_([{ date: "2026-11-04", times: Object.assign({}, before, { Isha: { minutes: 1430, epochMs: 0 } }) }], { Isha: 20 });
+  assert.equal(wrap[0].times.Isha.minutes, 10, "the clock wraps past midnight");
 });
 
 test("buildAladhanMonthUrl_ uses https and the calendar endpoint", () => {
@@ -28,9 +37,9 @@ test("buildAladhanMonthUrl_ uses https and the calendar endpoint", () => {
   assert.equal(
     buildAladhanMonthUrl_(2026, 11, budapest, settings),
     "https://api.aladhan.com/v1/calendar/2026/11?latitude=47.4984&longitude=19.0405&method=2&school=1" +
-      "&latitudeAdjustmentMethod=1&tune=0%2C0%2C0%2C0%2C0%2C0%2C0%2C3%2C0" +
-      "&timezonestring=Europe%2FBudapest&iso8601=true"
+      "&latitudeAdjustmentMethod=1&timezonestring=Europe%2FBudapest&iso8601=true"
   );
+  assert.doesNotMatch(buildAladhanMonthUrl_(2026, 11, budapest, settings), /tune=/, "methods keep AlAdhan's own tune values");
 });
 
 test("buildAladhanMonthUrl_ leaves out an unknown time zone", () => {
@@ -92,6 +101,36 @@ test("a plain Isha after midnight belongs to the next day", () => {
   assert.equal(day.times.Isha.minutes, 55);
   assert.equal(day.times.Isha.epochMs, tz.localToEpoch("2026-03-29", 55, "Europe/Budapest"));
   assert.ok(day.times.Isha.epochMs > day.times.Maghrib.epochMs);
+});
+
+test("times past midnight are placed on the right day, judged against Dhuhr", () => {
+  const fixture = clone(plainFixture);
+  fixture.data = [fixture.data[2]]; // 30 March 2026, CEST, Dhuhr 12:51
+  Object.assign(fixture.data[0].timings, { Imsak: "23:40 (CEST)", Fajr: "23:50 (CEST)", Maghrib: "00:20 (CEST)", Isha: "01:10 (CEST)" });
+  const day = parseAladhanCalendar_(fixture, tz.localToEpoch)[0];
+  assert.equal(day.times.Fajr.epochMs, tz.localToEpoch("2026-03-29", 23 * 60 + 50, "Europe/Budapest"), "Fajr before midnight is the evening before");
+  assert.equal(day.times.Imsak.epochMs, tz.localToEpoch("2026-03-29", 23 * 60 + 40, "Europe/Budapest"));
+  assert.equal(day.times.Maghrib.epochMs, tz.localToEpoch("2026-03-31", 20, "Europe/Budapest"), "Maghrib after midnight is the next day");
+  assert.equal(day.times.Isha.epochMs, tz.localToEpoch("2026-03-31", 70, "Europe/Budapest"));
+  assert.equal(day.times.Sunrise.epochMs, tz.localToEpoch("2026-03-30", 6 * 60 + 48, "Europe/Budapest"));
+
+  const iso = clone(isoFixture);
+  iso.data = [iso.data[0]];
+  // An ISO time past midnight that still carries the day's own date.
+  iso.data[0].timings.Isha = "2026-11-04T00:30:00+01:00";
+  iso.data[0].timings.Fajr = "2026-11-04T23:55:00+01:00";
+  const isoDay = parseAladhanCalendar_(iso)[0];
+  assert.equal(isoDay.times.Isha.epochMs, Date.UTC(2026, 10, 4, 23, 30));
+  assert.equal(isoDay.times.Fajr.epochMs, Date.UTC(2026, 10, 3, 22, 55));
+  // A rolled ISO date is trusted as it is.
+  iso.data[0].timings.Isha = "2026-11-05T00:30:00+01:00";
+  assert.equal(parseAladhanCalendar_(iso)[0].times.Isha.epochMs, Date.UTC(2026, 10, 4, 23, 30));
+});
+
+test("parseAladhanTimeZone_ reads meta.timezone", () => {
+  assert.equal(parseAladhanTimeZone_(isoFixture), "Europe/Budapest");
+  assert.throws(() => parseAladhanTimeZone_({ code: 400, status: "BAD_REQUEST", data: "Invalid latitude" }), /coordinates \(Invalid latitude\)\. Try searching/);
+  assert.throws(() => parseAladhanTimeZone_(null), /Could not find the time zone/);
 });
 
 test("parseAladhanCalendar_ reports API errors and bad data", () => {

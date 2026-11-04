@@ -58,6 +58,7 @@ function installEnvironment(options) {
     sleptMs: 0,
     fetchAllCalls: 0,
     lockBusy: false,
+    fetchAllThrows: 0,
     geocodeResults: {
       budapest: fixture("open-meteo-budapest.json"),
       springfield: fixture("open-meteo-springfield.json"),
@@ -270,10 +271,10 @@ function installEnvironment(options) {
     const match = /^\/v1\/calendar\/(\d{4})\/(\d{1,2})$/.exec(url.pathname);
     if (!match) return response(404, { code: 404, status: "NOT_FOUND", data: "Unknown endpoint" });
     const q = Object.fromEntries(url.searchParams);
-    for (const key of ["latitude", "longitude", "method", "school", "latitudeAdjustmentMethod", "tune", "iso8601"]) {
+    for (const key of ["latitude", "longitude", "method", "school", "latitudeAdjustmentMethod", "iso8601"]) {
       if (q[key] === undefined) return response(400, { code: 400, status: "BAD_REQUEST", data: "Missing " + key });
     }
-    const tune = q.tune.split(",").map(Number);
+    const tune = (q.tune || "0,0,0,0,0,0,0,0,0").split(",").map(Number);
     if (tune.length !== 9 || tune.some((n) => !Number.isInteger(n))) return response(400, { code: 400, status: "BAD_REQUEST", data: "Bad tune" });
     const zone = q.timezonestring || env.zoneForCoordinates(Number(q.latitude), Number(q.longitude));
     const offsets = {
@@ -326,7 +327,13 @@ function installEnvironment(options) {
     fetchAll: (requests) => {
       env.fetchAllCalls++;
       if (env.latencyMs && clock) clock.tick(env.latencyMs);
-      return requests.map((request) => handle(request));
+      const responses = requests.map((request) => handle(request));
+      // A transport failure after the requests were sent: Calendar applied them, but the script sees an exception.
+      if (env.fetchAllThrows > 0) {
+        env.fetchAllThrows--;
+        throw new Error("Exception: Address unavailable");
+      }
+      return responses;
     },
   };
 

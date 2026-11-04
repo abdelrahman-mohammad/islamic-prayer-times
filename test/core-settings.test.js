@@ -95,15 +95,16 @@ test("migrateLegacySettings_ converts version 1 user properties", () => {
 test("migrateLegacySettings_ handles partial and empty version 1 data", () => {
   assert.equal(migrateLegacySettings_({}, false), null);
   assert.equal(migrateLegacySettings_({ unrelated: "x" }, false), null);
-  const partial = migrateLegacySettings_({ method: "5", onboardingComplete: "true" }, false);
-  assert.equal(partial.location, null);
-  assert.equal(partial.method, 5);
-  assert.equal(partial.setupComplete, false);
-  assert.equal(partial.autoSync, false);
-  assert.equal(partial.reminderMinutes, 0);
-  const odd = migrateLegacySettings_({ latitude: "abc", longitude: "1", reminderMinutes: "soon", method: "77" }, false);
-  assert.equal(odd.location, null);
+  assert.equal(hasLegacySettings_({ unrelated: "x" }), false);
+  // Version 1 wrote its defaults on any save, even before a city was chosen.
+  const skipped = { method: "2", reminderMinutes: "30", eventDuration: "30", calendarId: "primary", onboardingComplete: "true" };
+  assert.equal(hasLegacySettings_(skipped), true);
+  assert.equal(migrateLegacySettings_(skipped, false), null, "without a city nothing was a real choice");
+  assert.equal(migrateLegacySettings_({ latitude: "abc", longitude: "1", method: "77" }, false), null);
+  const odd = migrateLegacySettings_({ latitude: "10", longitude: "1", reminderMinutes: "soon", method: "77" }, false);
   assert.equal(odd.method, 3);
+  assert.equal(odd.methodChosen, false);
+  assert.equal(odd.reminderMinutes, 0);
 });
 
 test("withLocation_ suggests method and school unless the user chose them", () => {

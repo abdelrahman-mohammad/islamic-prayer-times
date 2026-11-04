@@ -27,13 +27,22 @@ function saveSettings_(settings) {
   return normalized;
 }
 
-/** Moves version 1 settings (one property per value) to the version 2 format. */
+/**
+ * Moves version 1 settings (one property per value) to the version 2 format.
+ * Runs while the user has no version 2 settings yet.
+ */
 function migrateFromVersion1_(props) {
-  const migrated = migrateLegacySettings_(props.getProperties(), hasSyncTrigger_());
+  // Version 1 kept this key for all users; nothing reads it any more.
+  removeSharedApiKey_();
+  const legacy = props.getProperties();
+  if (!hasLegacySettings_(legacy)) return defaultSettings_();
+  const migrated = migrateLegacySettings_(legacy, hasSyncTrigger_());
+  LEGACY_KEYS_.forEach((key) => props.deleteProperty(key));
   if (!migrated) return defaultSettings_();
   saveSettings_(migrated);
-  LEGACY_KEYS_.forEach((key) => props.deleteProperty(key));
-  removeSharedApiKey_();
+  // Remember version 1's calendar, so its events are replaced or removed even
+  // if the user picks another calendar before the first version 2 sync.
+  updateState_({ calendarIds: [String(legacy.calendarId || "primary")] });
   return migrated;
 }
 
@@ -85,13 +94,27 @@ function updateState_(changes) {
   return saveState_(Object.assign(loadState_(), changes));
 }
 
-/** Clears settings and state and stops the daily sync. Calendar events are kept. */
+/**
+ * Clears settings and state and stops the daily sync. Calendar events are
+ * kept, and so is the record of the calendars the add-on wrote to: a new
+ * setup then reuses the Prayer Times calendar instead of making a second one,
+ * and Remove prayer events still finds the old events.
+ */
 function resetAddOn_() {
   removeSyncTrigger_();
+  const settings = loadSettings_();
+  const known = loadState_().calendarIds.slice();
+  [settings.calendar, settings.dedicatedCalendarId].forEach((id) => {
+    if (id && id !== DEDICATED_CALENDAR_ && known.indexOf(id) === -1) known.push(id);
+  });
   const props = PropertiesService.getUserProperties();
   props.deleteProperty(APP_.settingsKey);
   props.deleteProperty(APP_.stateKey);
   LEGACY_KEYS_.forEach((key) => props.deleteProperty(key));
+  if (settings.dedicatedCalendarId) {
+    saveSettings_(Object.assign(defaultSettings_(), { dedicatedCalendarId: settings.dedicatedCalendarId }));
+  }
+  if (known.length) saveState_(Object.assign(defaultState_(), { calendarIds: known }));
   try {
     CacheService.getUserCache().remove(CALENDAR_PREFS_CACHE_KEY_);
   } catch (err) {

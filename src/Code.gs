@@ -32,11 +32,13 @@ function syncPrayerTimes() {
   const settings = loadSettings_();
   if (!settings.setupComplete || !settings.location || !settings.autoSync) {
     console.log("Automatic sync skipped: setup is not finished or automatic updates are off.");
-    if (!settings.autoSync) removeSyncTrigger_();
+    removeSyncTrigger_();
     return;
   }
   try {
     console.log("Automatic sync: " + syncMessage_(syncCalendar_(TRIGGER_TIME_BUDGET_MS_)));
+    // Moves a version 1 trigger, or one in an old time zone, to 3 AM local time.
+    updateSyncTrigger_(loadSettings_());
   } catch (err) {
     console.error("Automatic sync failed: " + (err && err.stack ? err.stack : err));
     try {
@@ -112,10 +114,16 @@ function applyLocation_(mode, location, pushed) {
 }
 
 function onBackToLocation(e) {
-  return handleAction_(() => {
-    saveForm_(e);
-    return respond_(CardService.newNavigation().updateCard(buildLocationCard_(locationModel_("setup"))));
-  });
+  return handleAction_(() =>
+    respond_(CardService.newNavigation().updateCard(buildLocationCard_(locationModel_("setup"))))
+  );
+}
+
+/** Setup step 1, "Keep": goes on to step 2 with the location already chosen. */
+function onKeepLocation(e) {
+  return handleAction_(() =>
+    respond_(CardService.newNavigation().updateCard(buildPreferencesCard_(settingsModel_(loadSettings_()))))
+  );
 }
 
 function onFinishSetup(e) {
@@ -134,7 +142,8 @@ function onFinishSetup(e) {
       updateState_({ lastError: errorMessage_(err) });
     }
     try {
-      updateSyncTrigger_(settings);
+      // The sync may have looked up the time zone, which the trigger needs.
+      updateSyncTrigger_(loadSettings_());
     } catch (err) {
       console.warn("Could not create the daily trigger: " + err);
     }
@@ -245,8 +254,12 @@ function firstSetupCard_(settings) {
 }
 
 function locationModel_(mode, extra) {
-  const model = Object.assign({ mode: mode, suggestion: null, calendarTimeZone: "", query: "", places: null }, extra || {});
-  if (mode === "setup" && !model.places) {
+  const model = Object.assign(
+    { mode: mode, current: null, suggestion: null, calendarTimeZone: "", query: "", places: null },
+    extra || {}
+  );
+  if (mode === "setup") model.current = loadSettings_().location;
+  if (mode === "setup" && !model.places && !model.current) {
     const prefs = getCalendarPrefs_();
     model.calendarTimeZone = prefs.timeZone;
     model.suggestion = prefs.timeZone ? suggestPlaceForTimeZone_(prefs.timeZone) : null;
@@ -262,12 +275,16 @@ function homeModel_(settings) {
     nowMs: Date.now(),
     today: "",
     days: [],
+    nextDays: [],
     error: "",
   };
   try {
     model.settings = ensureLocationTimeZone_(settings);
     model.today = todayInZone_(model.settings.location.timezone);
-    model.days = loadPrayerDays_(model.settings, model.today, addDays_(model.today, 1));
+    // Yesterday too: its Isha can fall after midnight, before today's Fajr.
+    const days = loadPrayerDays_(model.settings, addDays_(model.today, -1), addDays_(model.today, 1));
+    model.nextDays = days;
+    model.days = days.slice(1);
   } catch (err) {
     console.warn("Could not load today's prayer times: " + err);
     model.error = errorMessage_(err);
@@ -299,6 +316,11 @@ function saveForm_(e) {
   const before = loadSettings_();
   if (!fields.length) return { settings: before, errors: [], affectsEvents: false };
   const result = applyFormToSettings_(before, readFormInputs_(e), fields);
+  const chosen = result.settings.calendar;
+  if (chosen !== before.calendar && canonicalCalendarId_(chosen) === canonicalCalendarId_(before.calendar)) {
+    // "primary" and the main calendar's ID are the same calendar.
+    result.settings.calendar = before.calendar;
+  }
   const after = saveSettings_(result.settings);
   const affectsEvents = settingsAffectEvents_(before, after);
   if (after.setupComplete && affectsEvents) updateState_({ pendingChanges: true });

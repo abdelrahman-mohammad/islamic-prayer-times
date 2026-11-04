@@ -275,6 +275,27 @@ test("planRemoval_ deletes an event once even if its calendar is listed twice", 
   assert.equal(ops.length, 1);
 });
 
+test("planSync_ leaves version 1 events that start before the window alone", () => {
+  const window = Object.assign(syncWindow_("2026-11-04", 1), { startMs: Date.UTC(2026, 10, 3, 23, 0) });
+  const legacy = (id, start) => ({ id, start: { dateTime: start }, extendedProperties: { private: { prayerTimeEvent: "true", prayerName: "Isha" } } });
+  const ops = planSync_([], [legacy("old", "2026-11-03T17:00:00Z"), legacy("today", "2026-11-04T04:00:00Z")], [
+    { calendarId: "other", events: [legacy("other-old", "2026-11-02T17:00:00Z"), legacy("other-today", "2026-11-04T17:00:00+01:00")] },
+  ], window, "cal");
+  assert.deepEqual(ops.map((op) => op.eventId), ["today", "other-today"]);
+});
+
+test("findNextPrayer_ finds yesterday's Isha when it falls after midnight", () => {
+  const yesterday = day(novDec, "2026-11-04");
+  const today = day(novDec, "2026-11-05");
+  const lateIsha = Object.assign({}, yesterday, {
+    times: Object.assign({}, yesterday.times, { Isha: { minutes: 30, epochMs: tz.localToEpoch("2026-11-05", 30, ZONE) } }),
+  });
+  const now = tz.localToEpoch("2026-11-05", 10, ZONE);
+  const next = findNextPrayer_([lateIsha, today], settingsWith(), now);
+  assert.equal(next.title, "Isha");
+  assert.equal(next.date, "2026-11-04");
+});
+
 test("planSync_ deletes events past a shorter window", () => {
   const thirty = buildDesiredEvents_(novDec, settingsWith(), ctx);
   const existing = thirty.map((spec, i) => existingEvent("e" + i, spec));
@@ -319,7 +340,10 @@ test("classifyCalendarResponse_ separates retries, stops and plain failures", ()
   assert.equal(classifyCalendarResponse_(insert, 403, body("rateLimitExceeded")).retry, true);
   assert.equal(classifyCalendarResponse_(insert, 403, body("userRateLimitExceeded")).retry, true);
   assert.equal(classifyCalendarResponse_(insert, 429, "").retry, true);
-  assert.equal(classifyCalendarResponse_(insert, 503, "<html>").retry, true);
+  assert.equal(classifyCalendarResponse_(insert, 503, "<html>").retry, false, "an insert may have been applied");
+  assert.match(classifyCalendarResponse_(insert, 503, "").message, /did not confirm/);
+  assert.equal(classifyCalendarResponse_(del, 503, "").retry, true, "repeating a delete is safe");
+  assert.equal(classifyCalendarResponse_({ type: "update" }, 500, "").retry, true);
   const quota = classifyCalendarResponse_(insert, 403, body("quotaExceeded"));
   assert.equal(quota.stop, true);
   assert.match(quota.message, /limit for adding events/);
@@ -344,7 +368,7 @@ test("summarizeSync_ reports how far the calendar is complete", () => {
     inserted: 2, updated: 1, deleted: 2, failed: 0, pending: 0, syncedThrough: "2026-11-06", complete: true, cleanupPending: false,
   });
   const partial = summarizeSync_(ops, ["done", "done", "failed", undefined, undefined], window);
-  assert.equal(partial.syncedThrough, "2026-11-04");
+  assert.equal(partial.syncedThrough, "2026-11-05", "a failed update leaves the day's events in place");
   assert.equal(partial.failed, 1);
   assert.equal(partial.pending, 2);
   assert.equal(partial.complete, false);

@@ -171,17 +171,30 @@ add-on says so; entering coordinates works without Open-Meteo.
 
 ## Upgrading from version 1
 
-The first time version 2 runs for a user, it:
+The first time version 2 runs for a user, whether the user opens the add-on or
+version 1's daily trigger fires, it:
 
 - moves the old settings (location, method, reminder, event length, calendar)
   to the new format. A 0-minute reminder now stays 0 minutes, where version 1
-  turned it into 30.
-- looks up the location's time zone, which version 1 did not store.
-- keeps automatic updates on if version 1's daily trigger existed, and replaces
-  that trigger with one at 3 AM in the location's time zone.
+  turned it into 30. A user who never chose a city in version 1 starts setup
+  fresh, because version 1 saved its defaults before any choice was made.
 - deletes the shared `GEOAPIFY_API_KEY` from Script Properties.
+- remembers version 1's calendar, so its events are replaced even if you pick
+  another calendar first.
+- looks up the location's time zone, which version 1 did not store.
+- keeps automatic updates on if version 1's daily trigger existed. That trigger
+  is replaced with one at 3 AM in the location's time zone after its next run,
+  or when you open the add-on.
 - replaces version 1's events from today onward. Earlier events stay until you
   use **Remove prayer events**.
+
+Version 1's daily sync time setting is gone. Version 2 keeps 7 to 30 days in
+the calendar, so the hour of the daily update no longer matters, and it always
+runs at 3 AM in the location's time zone.
+
+**Reset add-on** clears the settings but keeps the record of the calendars the
+add-on wrote to. Setting up again then reuses the Prayer Times calendar instead
+of making a second one, and **Remove prayer events** still finds every event.
 
 ## Development
 

@@ -24,11 +24,13 @@ function newAction_(functionName, parameters) {
   return action;
 }
 
-/** The action every settings input runs on change. It saves without a spinner. */
+/**
+ * The action a settings input runs on change. It lists only that input's
+ * field, so a save that finishes late cannot overwrite other fields, and it
+ * keeps the default spinner, so saves cannot overlap.
+ */
 function saveAction_(fields, view) {
-  return newAction_("onSettingChange", { fields: fields.join(","), view: view }).setLoadIndicator(
-    CardService.LoadIndicator.NONE
-  );
+  return newAction_("onSettingChange", { fields: fields.join(","), view: view });
 }
 
 function button_(text, action) {
@@ -80,13 +82,13 @@ function dropdown_(name, title, items, selected, onChange) {
     .setFieldName(name)
     .setTitle(title);
   items.forEach((item) => input.addItem(plain_(item.label), String(item.value), String(item.value) === String(selected)));
-  if (onChange) input.setOnChangeAction(onChange);
+  if (onChange) input.setOnChangeAction(onChange(name));
   return input;
 }
 
 function switchRow_(name, label, description, selected, onChange) {
   const control = CardService.newSwitch().setFieldName(name).setValue("on").setSelected(!!selected);
-  if (onChange) control.setOnChangeAction(onChange);
+  if (onChange) control.setOnChangeAction(onChange(name));
   const row = CardService.newDecoratedText().setText(label).setWrapText(true).setSwitchControl(control);
   if (description) row.setBottomLabel(description);
   return row;
@@ -96,7 +98,7 @@ function textInput_(name, title, value, hint, onChange) {
   const input = CardService.newTextInput().setFieldName(name).setTitle(title);
   if (value !== undefined && value !== null && value !== "") input.setValue(String(value));
   if (hint) input.setHint(hint);
-  if (onChange) input.setOnChangeAction(onChange);
+  if (onChange) input.setOnChangeAction(onChange(name));
   return input;
 }
 
@@ -114,11 +116,6 @@ function attributionParagraph_() {
 // ---------------------------------------------------------------------------
 // Choice lists
 // ---------------------------------------------------------------------------
-
-function minutesLabel_(minutes) {
-  if (minutes >= 60 && minutes % 60 === 0) return minutes / 60 + (minutes === 60 ? " hour" : " hours");
-  return minutes + (minutes === 1 ? " minute" : " minutes");
-}
 
 function reminderItems_(current) {
   const values = REMINDER_CHOICES_.slice();
@@ -221,7 +218,7 @@ function prayerCheckboxes_(settings, onChange) {
     .setType(CardService.SelectionInputType.CHECK_BOX)
     .setFieldName(FIELD_.prayers)
     .setTitle("Add to my calendar")
-    .setOnChangeAction(onChange);
+    .setOnChangeAction(onChange(FIELD_.prayers));
   DAILY_EVENTS_.forEach((name) => {
     const label = name === "Sunrise" ? "Sunrise (end of Fajr time)" : name;
     input.addItem(label, name, settings.prayers.indexOf(name) !== -1);
@@ -254,7 +251,8 @@ function eventOptionWidgets_(settings, onChange) {
 /**
  * Location card, used for setup step 1 (mode "setup") and for changing the
  * location from Settings (mode "settings").
- * model: { mode, suggestion, calendarTimeZone, query, places }
+ * model: { mode, current, suggestion, calendarTimeZone, query, places }
+ * current is the location already chosen during setup, which the user can keep.
  */
 function buildLocationCard_(model) {
   const setup = model.mode === "setup";
@@ -266,6 +264,17 @@ function buildLocationCard_(model) {
     card.addSection(
       section_().addWidget(
         paragraph_("Prayer Times adds the daily prayer times for your city to Google Calendar. You do not need an account or an API key.")
+      )
+    );
+  }
+  if (setup && model.current) {
+    card.addSection(
+      section_("Current location").addWidget(
+        CardService.newDecoratedText()
+          .setText("<b>" + escapeHtml_(model.current.name) + "</b>")
+          .setBottomLabel(plain_(formatPlaceDetail_(model.current) || "Time zone: " + (model.current.timezone || "not known yet")))
+          .setWrapText(true)
+          .setButton(button_("Keep", newAction_("onKeepLocation")))
       )
     );
   }
@@ -342,7 +351,7 @@ function buildCoordinatesCard_(mode) {
 function buildPreferencesCard_(model) {
   const settings = model.settings;
   const fields = setupFields_();
-  const onChange = saveAction_(fields, "setup");
+  const onChange = (field) => saveAction_([field], "setup");
   const card = CardService.newCardBuilder()
     .setName("preferences")
     .setHeader(header_("Set up Prayer Times", "Step 2 of 2: your preferences"))
@@ -401,7 +410,7 @@ function todaySection_(model) {
   const settings = model.settings;
   const use24h = model.prefs.use24h;
   const today = model.days[0];
-  const next = findNextPrayer_(model.days, settings, model.nowMs);
+  const next = findNextPrayer_(model.nextDays && model.nextDays.length ? model.nextDays : model.days, settings, model.nowMs);
 
   let intro = "<b>" + formatLongDate_(today.date) + "</b>";
   const hijri = formatHijriDate_(today.hijri);
@@ -409,7 +418,7 @@ function todaySection_(model) {
   section.addWidget(paragraph_(intro));
 
   if (next) {
-    const day = next.date === today.date ? "" : "Tomorrow, ";
+    const day = next.date > today.date ? "Tomorrow, " : "";
     section.addWidget(
       CardService.newDecoratedText()
         .setTopLabel("Next prayer")
@@ -461,6 +470,8 @@ function calendarStatusSection_(model) {
     lines.push("Prayer times are not in your calendar yet. Select Sync now.");
   } else if (state.syncedThrough && (!model.today || state.syncedThrough >= model.today)) {
     lines.push("Prayer times are in <b>" + escapeHtml_(name) + "</b> through " + formatLongDate_(state.syncedThrough) + ".");
+  } else if (state.lastError) {
+    lines.push("The last sync did not finish. Select Sync now to finish it.");
   } else {
     lines.push("There are no upcoming prayer times in your calendar. Select Sync now.");
   }
@@ -478,7 +489,7 @@ function calendarStatusSection_(model) {
 function buildSettingsCard_(model) {
   const settings = model.settings;
   const fields = settingsFields_();
-  const onChange = saveAction_(fields, "settings");
+  const onChange = (field) => saveAction_([field], "settings");
   const card = CardService.newCardBuilder()
     .setName("settings")
     .setHeader(header_("Settings", "Changes are saved as you make them"))
