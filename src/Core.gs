@@ -127,6 +127,7 @@ const FIELD_ = Object.freeze({
   prayers: "prayers",
   jumuah: "jumuah",
   jumuahTime: "jumuahTime",
+  eventAt: "eventAt",
   ramadan: "ramadan",
   hijriAdjustment: "hijriAdjustment",
   reminder: "reminder",
@@ -141,6 +142,8 @@ const FIELD_ = Object.freeze({
 });
 const OFFSET_FIELD_PREFIX_ = "offset_";
 const MOSQUE_FIELD_PREFIX_ = "mosque_";
+const IQAMA_FIELD_PREFIX_ = "iqama_";
+const MAX_IQAMA_DELAY_ = 90;
 
 /** Calendar dropdown value for the add-on's own "Prayer Times" calendar. */
 const DEDICATED_CALENDAR_ = "dedicated";
@@ -739,6 +742,8 @@ function defaultSettings_() {
     prayers: OBLIGATORY_PRAYERS_.slice(),
     jumuah: true,
     jumuahTime: "",
+    iqama: { Fajr: "", Dhuhr: "", Asr: "", Maghrib: "", Isha: "" },
+    eventAt: "adhan",
     ramadan: true,
     hijriAdjustment: 0,
     reminderMinutes: 0,
@@ -795,7 +800,9 @@ function normalizeSettings_(raw) {
     offsets: offsets,
     prayers: prayers && prayers.length ? prayers : defaults.prayers,
     jumuah: typeof s.jumuah === "boolean" ? s.jumuah : defaults.jumuah,
-    jumuahTime: parseUserTime_(s.jumuahTime) === null ? "" : formatClock_(parseUserTime_(s.jumuahTime), true),
+    jumuahTime: formatJumuahTimes_(parseJumuahTimes_(s.jumuahTime) || []),
+    iqama: normalizeIqamaRules_(s.iqama),
+    eventAt: s.eventAt === "iqama" ? "iqama" : "adhan",
     ramadan: typeof s.ramadan === "boolean" ? s.ramadan : defaults.ramadan,
     hijriAdjustment: int(s.hijriAdjustment, -2, 2, 0),
     reminderMinutes: reminder,
@@ -937,12 +944,22 @@ function applyFormToSettings_(settings, values, fields) {
     const text = String(first(FIELD_.jumuahTime) || "").trim();
     if (!text) {
       next.jumuahTime = "";
-    } else if (parseUserTime_(text) === null) {
-      errors.push("Enter the Jumu'ah time as HH:MM, for example 13:30.");
+    } else if (parseJumuahTimes_(text) === null) {
+      errors.push("Enter the Jumu'ah time as HH:MM, for example 13:30, or two times such as 12:30, 13:45.");
     } else {
-      next.jumuahTime = formatClock_(parseUserTime_(text), true);
+      next.jumuahTime = formatJumuahTimes_(parseJumuahTimes_(text));
     }
   }
+  if (shown(FIELD_.eventAt) && first(FIELD_.eventAt) !== undefined) {
+    next.eventAt = first(FIELD_.eventAt) === "iqama" ? "iqama" : "adhan";
+  }
+  OBLIGATORY_PRAYERS_.forEach((name) => {
+    const field = IQAMA_FIELD_PREFIX_ + name;
+    if (!shown(field)) return;
+    const rule = parseIqamaRule_(first(field));
+    if (rule && rule.error) errors.push("Enter the " + name + " iqama as " + rule.error + ".");
+    else next.iqama[name] = formatIqamaRule_(rule);
+  });
   if (shown(FIELD_.hijriAdjustment) && first(FIELD_.hijriAdjustment) !== undefined) {
     const adjustment = parseWholeNumber_(first(FIELD_.hijriAdjustment));
     if (HIJRI_ADJUSTMENT_CHOICES_.indexOf(adjustment) !== -1) next.hijriAdjustment = adjustment;
@@ -981,7 +998,7 @@ function applyFormToSettings_(settings, values, fields) {
 /** True when two settings give different calendar events or times. */
 function settingsAffectEvents_(before, after) {
   const keys = [
-    "location", "method", "school", "highLatitudeRule", "offsets", "prayers", "jumuah", "jumuahTime",
+    "location", "method", "school", "highLatitudeRule", "offsets", "prayers", "jumuah", "jumuahTime", "iqama", "eventAt",
     "ramadan", "hijriAdjustment", "reminderMinutes", "durationMinutes", "showAsFree", "calendar", "daysAhead",
   ];
   return keys.some((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
@@ -998,7 +1015,8 @@ function settingsAffectEvents_(before, after) {
 function eventTimeForDay_(day, slot, settings) {
   const time = day.times[slot];
   if (slot === "Dhuhr" && day.weekday === 5 && settings.jumuah) {
-    const fixed = parseUserTime_(settings.jumuahTime);
+    const times = parseJumuahTimes_(settings.jumuahTime) || [];
+    const fixed = times.length ? times[0] : null;
     if (fixed !== null) {
       // Same-day shift from Dhuhr. Daylight saving changes never happen at midday.
       return { slot: slot, title: "Jumu'ah", minutes: fixed, epochMs: time.epochMs + (fixed - time.minutes) * 60000 };
@@ -1006,6 +1024,63 @@ function eventTimeForDay_(day, slot, settings) {
     return { slot: slot, title: "Jumu'ah", minutes: time.minutes, epochMs: time.epochMs };
   }
   return { slot: slot, title: slot, minutes: time.minutes, epochMs: time.epochMs };
+}
+
+/**
+ * Parses an iqama rule: "" (none), "+10" or "10" (minutes after the adhan),
+ * or a clock time such as "06:15" or "1:30 pm". Returns null for none,
+ * {after: minutes}, {at: minutes of day}, or {error}.
+ */
+function parseIqamaRule_(text) {
+  const value = String(text === undefined || text === null ? "" : text).trim();
+  if (!value) return null;
+  if (/^\+?\d{1,3}$/.test(value)) {
+    const minutes = Number(value.replace("+", ""));
+    return minutes <= MAX_IQAMA_DELAY_ ? { after: minutes } : { error: "at most " + MAX_IQAMA_DELAY_ + " minutes after the adhan" };
+  }
+  const at = parseUserTime_(value);
+  return at === null ? { error: "+10 for 10 minutes after the adhan, or a time such as 06:15" } : { at: at };
+}
+
+function formatIqamaRule_(rule) {
+  if (!rule || rule.error) return "";
+  return rule.after !== undefined ? "+" + rule.after : formatClock_(rule.at, true);
+}
+
+function normalizeIqamaRules_(raw) {
+  const rules = {};
+  OBLIGATORY_PRAYERS_.forEach((name) => {
+    rules[name] = formatIqamaRule_(parseIqamaRule_(raw && raw[name]));
+  });
+  return rules;
+}
+
+/**
+ * The iqama time of a prayer on a day, or null when there is no rule. Not for
+ * Jumu'ah, which has its own times. A fixed time before the adhan is ignored.
+ */
+function iqamaForDay_(day, slot, settings) {
+  if (OBLIGATORY_PRAYERS_.indexOf(slot) === -1) return null;
+  if (slot === "Dhuhr" && day.weekday === 5 && settings.jumuah) return null;
+  const rule = parseIqamaRule_(settings.iqama && settings.iqama[slot]);
+  if (!rule || rule.error) return null;
+  const adhan = day.times[slot];
+  const shift = rule.after !== undefined ? rule.after : rule.at - adhan.minutes;
+  if (shift < 0 || shift > 12 * 60) return null;
+  return { minutes: (adhan.minutes + shift) % 1440, epochMs: adhan.epochMs + shift * 60000 };
+}
+
+/** "12:30, 13:45" -> [750, 825]; "" -> []; null when invalid. Up to three times, sorted. */
+function parseJumuahTimes_(text) {
+  const parts = String(text === undefined || text === null ? "" : text).split(/[,;|]/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length > 3) return null;
+  const times = parts.map(parseUserTime_);
+  if (times.some((t) => t === null)) return null;
+  return times.sort((a, b) => a - b);
+}
+
+function formatJumuahTimes_(times) {
+  return times.map((t) => formatClock_(t, true)).join(", ");
 }
 
 /** Rows for the home card: every daily time, plus Suhoor and Iftar in Ramadan. */
@@ -1055,12 +1130,14 @@ function buildDesiredEvents_(days, settings, ctx) {
     DAILY_EVENTS_.forEach((slot) => {
       if (settings.prayers.indexOf(slot) === -1) return;
       const time = eventTimeForDay_(day, slot, settings);
+      const iqama = settings.eventAt === "iqama" ? iqamaForDay_(day, slot, settings) : null;
+      const startMs = iqama ? iqama.epochMs : time.epochMs;
       specs.push(makeEventSpec_({
         slot: slot,
         date: day.date,
         title: time.title,
-        startMs: time.epochMs,
-        endMs: time.epochMs + durationMs,
+        startMs: startMs,
+        endMs: startMs + durationMs,
         timeZone: timeZone,
         description: describeEvent_(slot, time, day, settings, ctx, hijriText),
         settings: settings,
@@ -1126,13 +1203,16 @@ function describeEvent_(slot, time, day, settings, ctx, hijriText) {
   } else if (slot === "Iftar") {
     lines.push("Iftar at Maghrib in " + place + ".");
   } else if (slot === "Dhuhr" && time.title === "Jumu'ah") {
-    const fixed = parseUserTime_(settings.jumuahTime) !== null;
+    const times = parseJumuahTimes_(settings.jumuahTime) || [];
     lines.push(
       "Jumu'ah (Friday prayer) in " + place + "." +
-        (fixed ? " Your chosen time. Dhuhr is at " + clock(day.times.Dhuhr.minutes) + "." : "")
+        (times.length > 1 ? " Jumu'ah times: " + times.map(clock).join(" and ") + "." : "") +
+        (times.length ? " Dhuhr is at " + clock(day.times.Dhuhr.minutes) + "." : "")
     );
   } else {
     lines.push(slot + " prayer time in " + place + ".");
+    const iqama = iqamaForDay_(day, slot, settings);
+    if (iqama) lines.push("Adhan " + clock(day.times[slot].minutes) + ", iqama " + clock(iqama.minutes) + ".");
   }
   if (slot !== "Sunrise" && slot !== "Iftar" && slot !== "Suhoor") {
     let method = "Calculation method: " + methodName_(settings.method) + ".";

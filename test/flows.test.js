@@ -694,6 +694,27 @@ test("typing the mosque's time sets the adjustment", (t) => {
   assert.equal(fajr.start.dateTime, toRfc3339_(tz.localToEpoch("2026-11-04", 5 * 60 + 20, ZONE)));
 });
 
+test("iqama times show on the home card and can move the events", (t) => {
+  const env = start(t);
+  const { home } = completeSetup(env);
+  const settingsCard = ui.shownCard(ui.click(home, "Settings"));
+  ui.change(settingsCard, "iqama_Asr", "+10");
+  assert.equal(ui.change(settingsCard, "iqama_Fajr", "later").notification, "Enter the Fajr iqama as +10 for 10 minutes after the adhan, or a time such as 06:15.");
+  ui.change(settingsCard, "iqama_Fajr", "");
+  ui.change(settingsCard, "eventAt", "iqama");
+  ui.change(settingsCard, "jumuahTime", "12:30 | 13:45");
+  assert.equal(settingsOf(env).jumuahTime, "12:30, 13:45");
+  const back = ui.shownCard(ui.click(settingsCard, "Done"));
+  const asrRow = ui.widgetsOf(back).find((w) => w.props.topLabel === "Asr");
+  assert.equal(asrRow.props.bottomLabel, "Iqama 14:28");
+  ui.click(back, "Sync now");
+  const events = env.appEventsIn(addOnCalendar(env).id);
+  const asr = events.find((e) => e.extendedProperties.private.prayerDate === "2026-11-04" && e.summary === "Asr");
+  assert.equal(asr.start.dateTime, toRfc3339_(tz.localToEpoch("2026-11-04", 14 * 60 + 28, ZONE)));
+  const jumuah = events.find((e) => e.extendedProperties.private.prayerDate === "2026-11-06" && e.summary === "Jumu'ah");
+  assert.equal(jumuah.start.dateTime, toRfc3339_(tz.localToEpoch("2026-11-06", 12 * 60 + 30, ZONE)));
+});
+
 test("a second sync running at the same time is refused", (t) => {
   const env = start(t);
   const { home } = completeSetup(env);

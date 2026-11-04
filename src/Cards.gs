@@ -181,7 +181,9 @@ function settingsFields_() {
   return setupFields_().concat(
     [FIELD_.jumuahTime, FIELD_.hijriAdjustment, FIELD_.highLatitudeRule],
     DAILY_EVENTS_.map((name) => OFFSET_FIELD_PREFIX_ + name),
-    DAILY_EVENTS_.map((name) => MOSQUE_FIELD_PREFIX_ + name)
+    DAILY_EVENTS_.map((name) => MOSQUE_FIELD_PREFIX_ + name),
+    [FIELD_.eventAt],
+    OBLIGATORY_PRAYERS_.map((name) => IQAMA_FIELD_PREFIX_ + name)
   );
 }
 
@@ -434,7 +436,14 @@ function todaySection_(model) {
     let time = formatClock_(row.minutes, use24h);
     if (isNext) time = "<b>" + time + "</b>";
     else if (row.epochMs <= model.nowMs) time = muted_(time);
-    section.addWidget(CardService.newDecoratedText().setTopLabel(row.title).setText(time));
+    const widget = CardService.newDecoratedText().setTopLabel(row.title).setText(time);
+    const iqama = iqamaForDay_(today, row.slot, settings);
+    if (iqama) widget.setBottomLabel("Iqama " + formatClock_(iqama.minutes, use24h));
+    if (row.title === "Jumu'ah") {
+      const times = parseJumuahTimes_(settings.jumuahTime) || [];
+      if (times.length > 1) widget.setBottomLabel("Also at " + times.slice(1).map((t) => formatClock_(t, use24h)).join(", "));
+    }
+    section.addWidget(widget);
   });
 
   const zone = settings.location && settings.location.timezone;
@@ -509,10 +518,21 @@ function buildSettingsCard_(model) {
   const special = section_("Friday and Ramadan");
   options.slice(3).forEach((widget) => special.addWidget(widget));
   special
-    .addWidget(textInput_(FIELD_.jumuahTime, "Jumu'ah time (optional)", settings.jumuahTime, "Leave empty to use the Dhuhr time, or enter a time such as 13:30", onChange))
+    .addWidget(textInput_(FIELD_.jumuahTime, "Jumu'ah times (optional)", settings.jumuahTime, "Leave empty to use the Dhuhr time, or enter 13:30, or two times such as 12:30, 13:45", onChange))
     .addWidget(dropdown_(FIELD_.hijriAdjustment, "Hijri date adjustment", hijriAdjustmentItems_(), settings.hijriAdjustment, onChange))
     .addWidget(paragraph_(muted_("Moves the Hijri date, and so the days of Ramadan, to match the moon sighting where you live.")));
   card.addSection(special);
+
+  const iqama = section_("Iqama").setCollapsible(true).setNumUncollapsibleWidgets(0);
+  iqama.addWidget(paragraph_(muted_("When the congregation starts. Enter +10 for 10 minutes after the adhan, or a fixed time such as 06:15. Leave empty for none.")));
+  iqama.addWidget(dropdown_(FIELD_.eventAt, "Calendar events start at", [
+    { value: "adhan", label: "The adhan (prayer time)" },
+    { value: "iqama", label: "The iqama, where one is set" },
+  ], settings.eventAt, onChange));
+  OBLIGATORY_PRAYERS_.forEach((name) => {
+    iqama.addWidget(textInput_(IQAMA_FIELD_PREFIX_ + name, name + " iqama", settings.iqama[name], "+10 or 06:15", onChange));
+  });
+  card.addSection(iqama);
 
   const tuning = section_("Fine-tuning").setCollapsible(true).setNumUncollapsibleWidgets(0);
   tuning.addWidget(paragraph_(muted_(

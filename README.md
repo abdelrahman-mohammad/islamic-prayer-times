@@ -25,7 +25,11 @@ uses two free APIs that need no account and no API key.
   minutes yourself.
 - **Choice of events**: Fajr, Dhuhr, Asr, Maghrib and Isha, plus Sunrise if you
   want it.
-- **Jumu'ah** on Fridays, at the Dhuhr time or at a fixed time you set.
+- **Jumu'ah** on Fridays, at the Dhuhr time or at up to three fixed times you
+  set, for example 12:30 and 13:45.
+- **Iqama times** per prayer, as minutes after the adhan (+10) or a fixed time
+  (06:15), like a mosque timetable. They show on the home card and in each
+  event, and events can start at the iqama instead of the adhan.
 - **Ramadan**: "Suhoor ends" (at Imsak) and "Iftar" (at Maghrib) events, with
   a Hijri date adjustment of up to two days to follow your local moon sighting.
 - **Your own Prayer Times calendar** by default, so the events are easy to hide,

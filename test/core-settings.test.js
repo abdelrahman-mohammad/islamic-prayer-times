@@ -198,7 +198,7 @@ test("applyFormToSettings_ reports invalid values and keeps the old ones", () =>
   const { settings, errors } = applyFormToSettings_(before, values, Object.keys(values));
   assert.deepEqual(errors, [
     "Choose at least one prayer to add to your calendar.",
-    "Enter the Jumu'ah time as HH:MM, for example 13:30.",
+    "Enter the Jumu'ah time as HH:MM, for example 13:30, or two times such as 12:30, 13:45.",
     "Fajr adjustment must be a whole number of minutes from -60 to 60.",
     "Isha adjustment must be a whole number of minutes from -60 to 60.",
   ]);

@@ -140,8 +140,46 @@ test("event descriptions name the place, method and Hijri date without emojis", 
   assert.match(sunrise.description, /^Sunrise in Budapest, Hungary\. The time for Fajr ends at sunrise\./);
   const jumuah = specs.find((s) => s.key === "2026-11-06|Dhuhr");
   assert.equal(jumuah.title, "Jumu'ah");
-  assert.match(jumuah.description, /Your chosen time\. Dhuhr is at \d\d:\d\d\./);
+  assert.match(jumuah.description, /Jumu'ah \(Friday prayer\) in Budapest, Hungary\. Dhuhr is at \d\d:\d\d\./);
   specs.forEach((spec) => assert.doesNotMatch(spec.description + spec.title, /\p{Extended_Pictographic}/u));
+});
+
+test("iqama rules: minutes after the adhan or a fixed time, and events can start at the iqama", () => {
+  assert.deepEqual(parseIqamaRule_("+10"), { after: 10 });
+  assert.deepEqual(parseIqamaRule_("0"), { after: 0 });
+  assert.deepEqual(parseIqamaRule_("06:15"), { at: 375 });
+  assert.equal(parseIqamaRule_(""), null);
+  assert.ok(parseIqamaRule_("+200").error);
+  assert.ok(parseIqamaRule_("soon").error);
+  assert.deepEqual(normalizeIqamaRules_({ Fajr: "6:15 am", Dhuhr: "10", Asr: "+0", Isha: "x" }), { Fajr: "06:15", Dhuhr: "+10", Asr: "+0", Maghrib: "", Isha: "" });
+
+  const s = settingsWith({ iqama: { Fajr: "06:15", Dhuhr: "+10", Asr: "", Maghrib: "+0", Isha: "" } });
+  const wed = day(novDec, "2026-11-04");
+  assert.equal(iqamaForDay_(wed, "Fajr", s).epochMs, tz.localToEpoch("2026-11-04", 6 * 60 + 15, ZONE));
+  assert.equal(iqamaForDay_(wed, "Dhuhr", s).epochMs, wed.times.Dhuhr.epochMs + 10 * 60000);
+  assert.equal(iqamaForDay_(wed, "Asr", s), null);
+  assert.equal(iqamaForDay_(wed, "Sunrise", s), null);
+  assert.equal(iqamaForDay_(day(novDec, "2026-11-06"), "Dhuhr", s), null, "Jumu'ah has its own times");
+  assert.equal(iqamaForDay_(wed, "Fajr", settingsWith({ iqama: { Fajr: "04:00" } })), null, "a fixed time before the adhan is ignored");
+
+  const atAdhan = buildDesiredEvents_(novDec, s, ctx).find((e) => e.key === "2026-11-04|Fajr");
+  assert.equal(atAdhan.startMs, wed.times.Fajr.epochMs);
+  assert.match(atAdhan.description, /Adhan 05:12, iqama 06:15\./);
+  const atIqama = buildDesiredEvents_(novDec, Object.assign({}, s, { eventAt: "iqama" }), ctx).find((e) => e.key === "2026-11-04|Fajr");
+  assert.equal(atIqama.startMs, tz.localToEpoch("2026-11-04", 6 * 60 + 15, ZONE));
+});
+
+test("Jumu'ah can have up to three times; the event uses the first", () => {
+  assert.deepEqual(parseJumuahTimes_("13:45, 12:30"), [750, 825]);
+  assert.deepEqual(parseJumuahTimes_("12:30 | 13:45"), [750, 825]);
+  assert.deepEqual(parseJumuahTimes_(""), []);
+  assert.equal(parseJumuahTimes_("12:30, soon"), null);
+  assert.equal(parseJumuahTimes_("12:00, 12:30, 13:00, 13:30"), null);
+  assert.equal(normalizeSettings_({ jumuahTime: "13:45,12:30" }).jumuahTime, "12:30, 13:45");
+  const s = settingsWith({ jumuahTime: "12:30, 13:45" });
+  const friday = buildDesiredEvents_(novDec, s, ctx).find((e) => e.key === "2026-11-06|Dhuhr");
+  assert.equal(friday.startMs, tz.localToEpoch("2026-11-06", 12 * 60 + 30, ZONE));
+  assert.match(friday.description, /Jumu'ah times: 12:30 and 13:45\./);
 });
 
 test("event signatures change only when the event would change", () => {
