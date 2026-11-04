@@ -1,0 +1,34 @@
+{
+    "timeZone": "Europe/Budapest",
+    "dependencies": {},
+    "exceptionLogging": "STACKDRIVER",
+    "runtimeVersion": "V8",
+    "oauthScopes": [
+        "https://www.googleapis.com/auth/calendar.addons.execute",
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/script.external_request",
+        "https://www.googleapis.com/auth/script.scriptapp"
+    ],
+    "addOns": {
+        "calendar": {
+            "homepageTrigger": {
+                "runFunction": "onCalendarOpen"
+            },
+            "eventOpenTrigger": {
+                "runFunction": "onEventOpen"
+            },
+            "conferenceSolution": []
+        },
+        "common": {
+            "name": "Prayer Times",
+            "logoUrl": "https://www.gstatic.com/images/branding/product/1x/calendar_48dp.png",
+            "layoutProperties": {
+                "primaryColor": "#4285f4"
+            },
+            "homepageTrigger": {
+                "runFunction": "onHomepage"
+            }
+        }
+    }
+}
