@@ -1,0 +1,11 @@
+name: Feature request
+description: Suggest something the add-on could do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like
+      description: What you want to do, and why it would help.
+    validations:
+      required: true

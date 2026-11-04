@@ -1,0 +1,27 @@
+name: Bug report
+description: Something in the add-on does not work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: notification
+    attributes:
+      label: Message shown by the add-on
+      description: The notification or error text, if there was one.
+  - type: textarea
+    id: log
+    attributes:
+      label: Executions log
+      description: In the Apps Script editor, open Executions and copy the log of the failing run.
+      render: text
+  - type: input
+    id: setup
+    attributes:
+      label: Location, calculation method and calendar
+      description: For example "Budapest, Muslim World League, Prayer Times calendar".
