@@ -1,0 +1,54 @@
+{
+  "timeZone": "Etc/UTC",
+  "runtimeVersion": "V8",
+  "exceptionLogging": "STACKDRIVER",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Calendar",
+        "version": "v3",
+        "serviceId": "calendar"
+      }
+    ]
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/calendar.addons.execute",
+    "https://www.googleapis.com/auth/calendar.app.created",
+    "https://www.googleapis.com/auth/calendar.events.owned",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+    "https://www.googleapis.com/auth/calendar.settings.readonly",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp"
+  ],
+  "urlFetchWhitelist": [
+    "https://api.aladhan.com/",
+    "https://geocoding-api.open-meteo.com/",
+    "https://www.googleapis.com/calendar/v3/"
+  ],
+  "addOns": {
+    "common": {
+      "name": "Prayer Times",
+      "logoUrl": "https://www.gstatic.com/images/branding/product/1x/calendar_48dp.png",
+      "layoutProperties": {
+        "primaryColor": "#0D9488",
+        "secondaryColor": "#0F766E"
+      },
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "openLinkUrlPrefixes": [
+        "https://aladhan.com/",
+        "https://open-meteo.com/",
+        "https://www.geonames.org/",
+        "https://creativecommons.org/"
+      ]
+    },
+    "calendar": {
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      }
+    }
+  }
+}
