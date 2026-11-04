@@ -140,6 +140,7 @@ const FIELD_ = Object.freeze({
   placeName: "placeName",
 });
 const OFFSET_FIELD_PREFIX_ = "offset_";
+const MOSQUE_FIELD_PREFIX_ = "mosque_";
 
 /** Calendar dropdown value for the add-on's own "Prayer Times" calendar. */
 const DEDICATED_CALENDAR_ = "dedicated";
@@ -1424,6 +1425,27 @@ function describeChanges_(summary) {
   if (summary.updated) parts.push(summary.updated + " updated");
   if (summary.deleted) parts.push(summary.deleted + " removed");
   return parts.join(", ");
+}
+
+/**
+ * The minute adjustment that moves a calculated time to the mosque's time.
+ * calculatedMinutes is today's time before any adjustment. The difference is
+ * taken the short way round midnight. Returns {minutes} or {error}.
+ */
+function offsetFromMosqueTime_(name, calculatedMinutes, mosqueText) {
+  const mosque = parseUserTime_(mosqueText);
+  if (mosque === null) return { error: "Enter your mosque's " + name + " time as HH:MM, for example 05:20." };
+  let diff = (((mosque - calculatedMinutes) % 1440) + 1440) % 1440;
+  if (diff > 720) diff -= 1440;
+  if (Math.abs(diff) > MAX_OFFSET_MINUTES_) {
+    return { error: "Your mosque's " + name + " time is more than 60 minutes from the calculated " + formatClock_(calculatedMinutes, true) + ". Check the time, or choose another calculation method." };
+  }
+  return { minutes: diff };
+}
+
+/** "+8 min", "-3 min", "0 min". */
+function formatOffset_(minutes) {
+  return (minutes > 0 ? "+" : "") + minutes + " min";
 }
 
 /** "yyyy-MM-dd HH:mm" text for Utilities.parseDate. */

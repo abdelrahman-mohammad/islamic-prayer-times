@@ -180,7 +180,8 @@ function setupFields_() {
 function settingsFields_() {
   return setupFields_().concat(
     [FIELD_.jumuahTime, FIELD_.hijriAdjustment, FIELD_.highLatitudeRule],
-    DAILY_EVENTS_.map((name) => OFFSET_FIELD_PREFIX_ + name)
+    DAILY_EVENTS_.map((name) => OFFSET_FIELD_PREFIX_ + name),
+    DAILY_EVENTS_.map((name) => MOSQUE_FIELD_PREFIX_ + name)
   );
 }
 
@@ -514,9 +515,17 @@ function buildSettingsCard_(model) {
   card.addSection(special);
 
   const tuning = section_("Fine-tuning").setCollapsible(true).setNumUncollapsibleWidgets(0);
-  tuning.addWidget(paragraph_(muted_("Add or subtract minutes to match your local mosque's timetable.")));
+  tuning.addWidget(paragraph_(muted_(
+    "Type your mosque's time for today and the add-on works out the adjustment. Or enter the minutes yourself."
+  )));
   DAILY_EVENTS_.forEach((name) => {
-    tuning.addWidget(textInput_(OFFSET_FIELD_PREFIX_ + name, name + " (minutes)", settings.offsets[name], "0", onChange));
+    const raw = model.rawToday && model.rawToday.times[name];
+    const offset = settings.offsets[name];
+    const calculated = raw
+      ? " (calculated " + formatClock_(raw.minutes, model.use24h) + (offset ? ", now " + formatClock_(raw.minutes + offset, model.use24h) : "") + ")"
+      : "";
+    tuning.addWidget(textInput_(MOSQUE_FIELD_PREFIX_ + name, name + " at your mosque today" + calculated, "", "For example 05:20", onChange));
+    tuning.addWidget(textInput_(OFFSET_FIELD_PREFIX_ + name, name + " adjustment (minutes)", offset, "0", onChange));
   });
   tuning
     .addWidget(dropdown_(FIELD_.highLatitudeRule, "High latitude rule", HIGH_LATITUDE_RULES_.map((r) => ({ value: r.id, label: r.name })), settings.highLatitudeRule, onChange))

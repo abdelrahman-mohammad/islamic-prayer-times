@@ -20,7 +20,9 @@ uses two free APIs that need no account and no API key.
 - **Asr time**: Standard (Shafi, Maliki, Hanbali) or Hanafi.
 - **High latitude rule**: angle based, middle of the night, or one seventh of
   the night.
-- **Minute adjustments** for each prayer, to match your local mosque.
+- **Minute adjustments** for each prayer, to match your local mosque. Type the
+  mosque's time for today and the add-on works out the adjustment, or enter the
+  minutes yourself.
 - **Choice of events**: Fajr, Dhuhr, Asr, Maghrib and Isha, plus Sunrise if you
   want it.
 - **Jumu'ah** on Fridays, at the Dhuhr time or at a fixed time you set.

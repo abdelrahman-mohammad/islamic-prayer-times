@@ -139,3 +139,15 @@ test("chunk_ splits lists", () => {
   assert.deepEqual(chunk_([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   assert.deepEqual(chunk_([], 3), []);
 });
+
+test("offsetFromMosqueTime_ works out the adjustment from the mosque's time", () => {
+  assert.deepEqual(offsetFromMosqueTime_("Fajr", 5 * 60 + 12, "05:20"), { minutes: 8 });
+  assert.deepEqual(offsetFromMosqueTime_("Fajr", 5 * 60 + 12, "5:09 am"), { minutes: -3 });
+  assert.deepEqual(offsetFromMosqueTime_("Isha", 23 * 60 + 50, "00:10"), { minutes: 20 }, "across midnight");
+  assert.deepEqual(offsetFromMosqueTime_("Isha", 10, "23:55"), { minutes: -15 });
+  assert.match(offsetFromMosqueTime_("Asr", 14 * 60, "16:00").error, /more than 60 minutes from the calculated 14:00/);
+  assert.match(offsetFromMosqueTime_("Asr", 14 * 60, "soon").error, /as HH:MM/);
+  assert.equal(formatOffset_(8), "+8 min");
+  assert.equal(formatOffset_(-3), "-3 min");
+  assert.equal(formatOffset_(0), "0 min");
+});

@@ -675,6 +675,25 @@ test("Jumu'ah at a fixed time, busy events, no reminder and Hanafi Asr reach the
   assert.ok(aladhanUrls.every((url) => !/tune=/.test(url)), "adjustments are applied locally");
 });
 
+test("typing the mosque's time sets the adjustment", (t) => {
+  const env = start(t);
+  const { home } = completeSetup(env);
+  const settingsCard = ui.shownCard(ui.click(home, "Settings"));
+  assert.equal(ui.findInput(settingsCard, "mosque_Fajr").props.title, "Fajr at your mosque today (calculated 05:12)");
+  const result = ui.change(settingsCard, "mosque_Fajr", "05:20");
+  assert.equal(result.notification, "Fajr adjustment set to +8 min. Select Sync now to update your calendar.");
+  assert.equal(settingsOf(env).offsets.Fajr, 8);
+  const updated = ui.shownCard(result);
+  assert.equal(ui.findInput(updated, "mosque_Fajr").props.title, "Fajr at your mosque today (calculated 05:12, now 05:20)");
+  assert.equal(ui.findInput(updated, "offset_Fajr").props.value, "8");
+  assert.match(ui.change(updated, "mosque_Asr", "17:30").notification, /more than 60 minutes/);
+  assert.equal(settingsOf(env).offsets.Asr, 0);
+  ui.change(updated, "mosque_Asr", "");
+  ui.click(updated, "Sync now");
+  const fajr = env.appEventsIn(addOnCalendar(env).id).find((e) => e.extendedProperties.private.prayerDate === "2026-11-04" && e.summary === "Fajr");
+  assert.equal(fajr.start.dateTime, toRfc3339_(tz.localToEpoch("2026-11-04", 5 * 60 + 20, ZONE)));
+});
+
 test("a second sync running at the same time is refused", (t) => {
   const env = start(t);
   const { home } = completeSetup(env);

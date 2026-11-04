@@ -193,6 +193,11 @@ function onSettingChange(e) {
   return handleAction_(() => {
     const saved = saveForm_(e);
     if (saved.errors.length) return notify_(saved.errors[0]);
+    if (saved.mosqueOffsets.length) {
+      // Show the new adjustment in its box.
+      const card = buildSettingsCard_(settingsModel_(saved.settings));
+      return respond_(CardService.newNavigation().updateCard(card), saved.mosqueOffsets.join(" ") + " Select Sync now to update your calendar.");
+    }
     return notify_(saved.settings.setupComplete && saved.affectsEvents ? "Saved. Select Sync now to update your calendar." : "Saved.");
   });
 }
@@ -293,11 +298,17 @@ function homeModel_(settings) {
 }
 
 function settingsModel_(settings) {
-  const model = { settings: settings, state: loadState_(), calendars: [] };
+  const model = { settings: settings, state: loadState_(), calendars: [], rawToday: null, use24h: true };
   try {
     model.calendars = listOwnedCalendars_();
   } catch (err) {
     console.warn("Could not list calendars: " + err);
+  }
+  try {
+    model.use24h = getCalendarPrefs_().use24h;
+    model.rawToday = rawToday_(settings);
+  } catch (err) {
+    console.warn("Could not load today's calculated times: " + err);
   }
   return model;
 }
@@ -314,8 +325,11 @@ function settingsModel_(settings) {
 function saveForm_(e) {
   const fields = String(param_(e, "fields") || "").split(",").filter(Boolean);
   const before = loadSettings_();
-  if (!fields.length) return { settings: before, errors: [], affectsEvents: false };
-  const result = applyFormToSettings_(before, readFormInputs_(e), fields);
+  if (!fields.length) return { settings: before, errors: [], affectsEvents: false, mosqueOffsets: [] };
+  const values = readFormInputs_(e);
+  const mosque = mosqueTimesToOffsets_(before, values, fields);
+  if (mosque.errors.length) return { settings: before, errors: mosque.errors, affectsEvents: false, mosqueOffsets: [] };
+  const result = applyFormToSettings_(before, values, fields);
   const chosen = result.settings.calendar;
   if (chosen !== before.calendar && canonicalCalendarId_(chosen) === canonicalCalendarId_(before.calendar)) {
     // "primary" and the main calendar's ID are the same calendar.
@@ -325,7 +339,41 @@ function saveForm_(e) {
   const affectsEvents = settingsAffectEvents_(before, after);
   if (after.setupComplete && affectsEvents) updateState_({ pendingChanges: true });
   if (after.setupComplete && before.autoSync !== after.autoSync) updateSyncTrigger_(after);
-  return { settings: after, errors: result.errors, affectsEvents: affectsEvents };
+  return { settings: after, errors: result.errors, affectsEvents: affectsEvents, mosqueOffsets: mosque.messages };
+}
+
+/** Today's times at the location before the user's minute adjustments. */
+function rawToday_(settings) {
+  if (!settings.location || !settings.location.timezone) return null;
+  const today = todayInZone_(settings.location.timezone);
+  return loadPrayerDays_(Object.assign({}, settings, { offsets: {} }), today, today)[0];
+}
+
+/**
+ * Turns "mosque time today" inputs into minute adjustments: each filled
+ * mosque_<prayer> value becomes the offset_<prayer> value. Changes values and
+ * fields in place. Returns {errors, messages}.
+ */
+function mosqueTimesToOffsets_(settings, values, fields) {
+  const result = { errors: [], messages: [] };
+  const filled = DAILY_EVENTS_.filter((name) => {
+    const v = values[MOSQUE_FIELD_PREFIX_ + name];
+    return fields.indexOf(MOSQUE_FIELD_PREFIX_ + name) !== -1 && v && String(v[0]).trim();
+  });
+  if (!filled.length) return result;
+  const today = rawToday_(settings);
+  if (!today) {
+    result.errors.push("Today's calculated times are not available yet. Select Sync now, then try again.");
+    return result;
+  }
+  filled.forEach((name) => {
+    const offset = offsetFromMosqueTime_(name, today.times[name].minutes, values[MOSQUE_FIELD_PREFIX_ + name][0]);
+    if (offset.error) return result.errors.push(offset.error);
+    values[OFFSET_FIELD_PREFIX_ + name] = [String(offset.minutes)];
+    if (fields.indexOf(OFFSET_FIELD_PREFIX_ + name) === -1) fields.push(OFFSET_FIELD_PREFIX_ + name);
+    result.messages.push(name + " adjustment set to " + formatOffset_(offset.minutes) + ".");
+  });
+  return result;
 }
 
 function handleAction_(work) {
