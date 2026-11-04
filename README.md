@@ -261,6 +261,15 @@ test/
   fixtures/        Real API responses (live/) and hand-written edge cases
 ```
 
+## Contributing
+
+Issues and pull requests are welcome. Run `npm test` before opening a pull
+request; GitHub Actions runs the same tests on every push and pull request.
+The rules for changing the code are in CLAUDE.md, under "Rules for changes".
+
+Do not commit a `.clasp.json` file: it holds your own script ID, and
+`.gitignore` already excludes it.
+
 ## License
 
-MIT.
+[MIT](LICENSE).
