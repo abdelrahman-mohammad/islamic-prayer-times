@@ -1,0 +1,33 @@
+{
+  "results": [
+    {
+      "id": 3054643,
+      "name": "Budapest",
+      "latitude": 47.49835,
+      "longitude": 19.04045,
+      "elevation": 104.0,
+      "feature_code": "PPLC",
+      "country_code": "HU",
+      "admin1_id": 3054638,
+      "timezone": "Europe/Budapest",
+      "population": 1741041,
+      "country_id": 719819,
+      "country": "Hungary",
+      "admin1": "Budapest"
+    },
+    {
+      "id": 9001,
+      "name": "Budapest",
+      "latitude": 33.5,
+      "longitude": -84.4,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "timezone": "America/New_York",
+      "population": 1200,
+      "country_id": 6252001,
+      "country": "United States",
+      "admin1": "Georgia"
+    }
+  ],
+  "generationtime_ms": 0.62
+}

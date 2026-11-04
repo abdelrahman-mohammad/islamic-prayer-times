@@ -1,332 +1,154 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file gives Claude Code guidance for working in this repository.
 
-## Project Overview
+## Project
 
-**Prayer Times Calendar Web App** - A modern Next.js web application that automatically syncs Islamic prayer times to users' Google Calendars with a beautiful glassmorphism UI featuring Islamic-themed design elements.
+A Google Calendar add-on, written in Google Apps Script (V8 runtime) with
+CardService, that adds Islamic prayer times to Google Calendar. The repository
+holds only the add-on. An earlier Next.js web app was removed; it is in the git
+history before the commit "Remove the Next.js web app".
 
-## Tech Stack
+The add-on has no server. It runs in Google's Apps Script environment and calls
+two free APIs that need no key:
 
-**Frontend:**
-- Next.js 14+ (App Router)
-- TypeScript
-- Tailwind CSS + Custom glassmorphism
-- shadcn/ui or Radix UI components
-- Zustand or React Context for state management
-- React Hook Form + Zod for form validation
-- TanStack Query (React Query) for API calls
-- Framer Motion for animations
+- AlAdhan (`https://api.aladhan.com/v1/calendar/{year}/{month}`) for prayer times.
+- Open-Meteo geocoding (`https://geocoding-api.open-meteo.com/v1/search`) for city
+  search. Each result includes the place's time zone.
 
-**Backend/Serverless:**
-- Next.js API routes (serverless functions)
-- NextAuth.js with Google OAuth Provider
-- PostgreSQL (Neon or Supabase) for user settings
-- Prisma ORM
-- Vercel Cron for automatic syncs
-
-**External APIs:**
-- Google Calendar API v3 (calendar management)
-- Aladhan Prayer Times API (prayer time calculations)
-- Geoapify Geocoding API (city search)
-
-**Deployment:**
-- Hosted on Vercel
-- Automatic deployments from GitHub
-- Vercel Analytics + Sentry for monitoring
-
-## Architecture
-
-This is a **serverless JAMstack** application:
-
-1. **Frontend** (Next.js pages/components) handles UI and user interactions
-2. **API Routes** (`/api/*`) act as serverless functions that:
-   - Handle authentication (NextAuth)
-   - Proxy external API calls (Google Calendar, Aladhan, Geoapify)
-   - Manage user settings in PostgreSQL
-   - Process calendar sync operations
-3. **Database** stores only user settings, preferences, and sync logs (no prayer data)
-4. **External APIs** are called from backend API routes to keep keys secure
-
-## Key Architectural Decisions
-
-### Security & Privacy
-- **OAuth 2.0 with PKCE flow** for Google authentication
-- **API keys never exposed** to frontend - all external API calls go through Next.js API routes
-- **Minimal data storage** - prayer times are fetched on-demand, not stored
-- **httpOnly cookies** for secure token storage
-- HTTPS-only, CORS properly configured, CSP headers implemented
-
-### Data Flow for Prayer Sync
-1. User clicks "Sync Now" → triggers POST to `/api/calendar/sync`
-2. API route fetches prayer times from Aladhan API using user's location and calculation method
-3. API route checks Google Calendar for existing prayer events (duplicate prevention)
-4. API route creates/updates events in user's selected Google Calendar with multiple reminders
-5. API route logs sync status to PostgreSQL
-6. Response sent back to frontend with success/error status
-
-### Data Flow for Event Cleanup (Auto-Delete)
-1. Vercel Cron triggers `/api/calendar/cleanup` hourly (or appropriate interval)
-2. API route queries users with `autoDeleteEvents: true`
-3. For each user, calculates deletion threshold based on `deleteEventsAfter` setting
-4. Fetches prayer events from Google Calendar within deletion window
-5. Batch deletes events that meet deletion criteria
-6. Logs cleanup operations to PostgreSQL
-
-### Glassmorphism Design System
-- Background: `rgba(255, 255, 255, 0.1)` with `backdrop-blur: 10px`
-- Border: `1px solid rgba(255, 255, 255, 0.2)`
-- Border radius: `16px`
-- Islamic patterns, mosque silhouettes, and geometric patterns as decorative elements
-- Color palette: Islamic green (#0D9488), gold accent (#F59E0B), deep blue/purple gradient backgrounds
-
-## Database Schema
-
-### User Model
-```typescript
-{
-  id: string;
-  googleId: string;
-  email: string;
-  name: string;
-  picture: string;
-  createdAt: Date;
-  updatedAt: Date;
-  settings: Settings; // One-to-one relation
-}
-```
-
-### Settings Model
-```typescript
-{
-  id: string;
-  userId: string;
-  location: {
-    city: string;
-    country: string;
-    latitude: number;
-    longitude: number;
-  };
-  calculationMethod: number; // 1-5 (ISNA, MWL, Umm Al-Qura, etc.)
-  reminderMinutes: number[]; // Array of reminder times, e.g., [30, 15, 5] for 30min, 15min, 5min before
-  selectedPrayers: string[]; // ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
-  targetCalendarId: string;
-  eventTitleTemplate: string; // Custom title template with {prayer} placeholder, default: "{prayer} Prayer"
-  autoSync: boolean;
-  syncFrequency: 'daily' | 'weekly' | 'monthly';
-  autoDeleteEvents: boolean; // Enable automatic deletion of past prayer events
-  deleteEventsAfter: '30min' | 'end-of-day' | 'end-of-week' | 'end-of-month'; // When to delete events
-  theme: 'light' | 'dark' | 'auto';
-  language: string;
-}
-```
-
-### SyncLog Model
-```typescript
-{
-  id: string;
-  userId: string;
-  timestamp: Date;
-  status: 'success' | 'failure';
-  eventsCreated: number;
-  errorMessage?: string;
-}
-```
-
-## API Routes Structure
-
-- `/api/auth/*` - NextAuth.js authentication endpoints (signin, callback, signout, session)
-- `/api/calendar/sync` - POST: Manually sync prayer times to Google Calendar
-- `/api/calendar/list` - GET: List user's Google calendars
-- `/api/calendar/create` - POST: Create dedicated "Prayer Times" calendar
-- `/api/calendar/cleanup` - POST: Delete past prayer events based on user settings (triggered by cron or manually)
-- `/api/prayers/times` - GET: Fetch prayer times from Aladhan API (params: lat, lon, method)
-- `/api/cities/search` - GET: Search cities using Geoapify (param: q)
-- `/api/settings` - GET/PUT/DELETE: Manage user settings
-- `/api/logs` - GET: Retrieve sync history
-
-## Environment Variables Required
-
-```env
-# Google OAuth (required)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-NEXTAUTH_SECRET=
-NEXTAUTH_URL=
-
-# Database (required)
-DATABASE_URL=
-
-# External APIs (required)
-GEOAPIFY_API_KEY=
-
-# Monitoring (optional)
-SENTRY_DSN=
-```
-
-## Development Commands
-
-Since this is a Next.js project, standard commands will be:
+## Commands
 
 ```bash
-# Install dependencies
-npm install
-
-# Run development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Start production server
-npm start
-
-# Run linter
-npm run lint
-
-# Run tests (once configured)
-npm test
-
-# Run Prisma migrations
-npx prisma migrate dev
-
-# Generate Prisma client
-npx prisma generate
-
-# Open Prisma Studio (database GUI)
-npx prisma studio
+npm test                 # all tests, Node.js 22+, no dependencies
+npm run test:timezones   # the suite in six process time zones
+clasp push               # upload src/ to the Apps Script project (needs .clasp.json, see README)
 ```
 
-## Key Implementation Notes
+There is no build step. The files in `src/` are the add-on.
 
-### Duplicate Prevention
-When syncing prayer events, always check for existing events by:
-1. Matching event title pattern using the user's custom template (e.g., if template is `{prayer} Prayer`, match "Fajr Prayer", "Dhuhr Prayer", etc.)
-2. Matching date and time window (within ±5 minutes)
-3. Update existing events if times changed instead of creating duplicates
-4. If user changes the event title template, old events with previous titles should be detected and updated or cleaned up
+## Files
 
-### Calculation Methods
-Support these 5 calculation methods (from Aladhan API):
-1. ISNA (Islamic Society of North America)
-2. Muslim World League
-3. Umm Al-Qura (Saudi Arabia)
-4. Egyptian General Authority
-5. University of Islamic Sciences, Karachi
+- `src/appsscript.json`: manifest. Homepage trigger `onHomepage` for Calendar,
+  narrow Calendar scopes, `urlFetchWhitelist`, `openLinkUrlPrefixes`, and the
+  advanced Calendar service (`Calendar`, v3). There is no event-open trigger.
+- `src/Core.gs`: all pure logic. Dates, times, time zone math, AlAdhan and
+  Open-Meteo URL building and parsing, Qibla bearing, method suggestions,
+  settings defaults, migration and form parsing, event building, the sync plan,
+  Calendar error classification, messages. No Apps Script service is called here.
+- `src/Services.gs`: HTTP with retries (`fetchJson_`), the per-user cache
+  (`cached_`), geocoding, AlAdhan months, calendar preferences and lists, the
+  dedicated calendar, listing the add-on's events, and bulk Calendar writes
+  (`runCalendarOps_`, parallel `UrlFetchApp.fetchAll` with backoff and a time
+  budget).
+- `src/Sync.gs`: `syncCalendar_`, `removeAllEvents_`, and the daily trigger
+  (`updateSyncTrigger_`).
+- `src/Settings.gs`: settings and sync state in User Properties, and migration
+  from version 1.
+- `src/Cards.gs`: card builders. They only read the model passed in and never
+  call services.
+- `src/Code.gs`: entry points. `onHomepage`, the trigger handler
+  `syncPrayerTimes` (version 1 used the same name, so its old trigger keeps
+  working), and the card actions (`on...`).
 
-### Event Details Format
-```typescript
-{
-  summary: eventTitleTemplate.replace('{prayer}', prayerName), // e.g., "Fajr Prayer" (default template: "{prayer} Prayer")
-  description: `Prayer time calculated using [Method Name]\nLocation: [City, Country]`,
-  start: { dateTime: ISO8601, timeZone: 'UTC' },
-  end: { dateTime: ISO8601 + 15min, timeZone: 'UTC' },
-  location: "[City, Country]",
-  reminders: {
-    useDefault: false,
-    overrides: [
-      { method: 'popup', minutes: 30 },
-      { method: 'popup', minutes: 15 },
-      { method: 'popup', minutes: 5 }
-      // Multiple reminders from user's reminderMinutes array
-    ]
-  }
-}
-```
+## How a sync works
 
-### Event Title Customization
-Users can customize the event title using a template with a `{prayer}` placeholder:
-- **Default template**: `{prayer} Prayer` → "Fajr Prayer", "Dhuhr Prayer", etc.
-- **Custom examples**:
-  - `🕌 {prayer}` → "🕌 Fajr", "🕌 Dhuhr"
-  - `Time for {prayer}` → "Time for Fajr", "Time for Dhuhr"
-  - `{prayer} - صلاة` → "Fajr - صلاة", "Dhuhr - صلاة"
-- The `{prayer}` placeholder is replaced with the prayer name during event creation
-- Template validation ensures `{prayer}` placeholder is present
+1. Load settings. Look up the location's time zone through AlAdhan if it is
+   missing (version 1 data and pasted coordinates).
+2. Window: today in the location's time zone plus `daysAhead - 1` days.
+3. Fetch the months that cover the window from AlAdhan (cached for 6 hours),
+   apply the Hijri adjustment and the user's minute adjustments
+   (`applyOffsets_`), and stop if any day is missing, so missing data never
+   deletes events. Adjustments are never sent as AlAdhan's `tune` parameter:
+   some methods carry their own tune values, which it would replace.
+4. `buildDesiredEvents_` makes one spec per event: key `date|slot`, title, exact
+   start and end instants, description, reminder, transparency, and a content
+   hash (`sig`).
+5. List the add-on's events with `privateExtendedProperty=prayerTimeEvent=true`,
+   from a day before the window (after a move west, today's events for the old
+   place can end before midnight here), in the target calendar and in calendars
+   used before.
+6. `planSync_` compares the two lists: insert what is missing, update what has a
+   different `sig`, delete duplicates and unwanted events, delete version 1
+   events (tagged but without `prayerDate`) from the window's first midnight
+   on, and delete upcoming events in calendars no longer used. Events before
+   the window are history and are never touched by a sync.
+7. `runCalendarOps_` runs the plan ten requests at a time until about 22 seconds
+   have passed (card actions must answer within 30 seconds). Rate-limited
+   requests are retried. An insert answered with a 5xx, or lost in a failed
+   `fetchAll`, is not sent again in the same run, because it may have been
+   applied; the next sync lists the calendar first. `summarizeSync_` reports
+   how far the calendar is complete: `syncedThrough` stops before the first day
+   with a missing insert.
 
-### Auto-Delete Prayer Events
-Users can configure automatic deletion of past prayer events to keep their calendar clean:
+## Rules for changes
 
-**Delete Timing Options:**
-- **30 minutes after prayer** - Event deleted 30 min after the prayer time ends (e.g., Fajr at 5:30 AM deleted at 6:15 AM)
-- **End of day** - All prayer events for the day deleted at 11:59 PM
-- **End of week** - All prayer events for the week deleted on Sunday at 11:59 PM
-- **End of month** - All prayer events for the month deleted on the last day at 11:59 PM
+- Put date, time and parsing logic in `Core.gs` as pure functions, with unit
+  tests in `test/core-*.test.js`. Pass time zone conversions in as functions;
+  `Services.gs` uses `Utilities.parseDate` and `Utilities.formatDate`, the
+  tests use `test/helpers/tz.js`.
+- Dates are `YYYY-MM-DD` strings for a local day at the location. Instants are
+  epoch milliseconds. Never use the runtime's local time zone (`getHours`,
+  `setHours`, `new Date(y, m, d)`); the script's time zone is unrelated to the user's.
+- Only touch events whose private extended property `prayerTimeEvent` is `"true"`.
+  Never match events by title.
+- Parse numbers with `parseWholeNumber_` and check the result. Never write
+  `parseInt(x) || default`, which turns 0 into the default.
+- Only https. Any new host must be added to `urlFetchWhitelist` (and to
+  `openLinkUrlPrefixes` if a card links to it); `test/static.test.js` checks this.
+- Store per-user data in User Properties only. Script Properties are shared by
+  every user of the add-on.
+- Names of private helpers end in an underscore, so they stay out of the editor's
+  Run menu. Card action handlers and trigger handlers must be public.
+- No code at the top level of a file may use a name from another file. Apps
+  Script does not promise a load order; `test/static.test.js` loads the files in
+  two orders to check this.
+- Card builders take a model and return a built card. Card actions go through
+  `handleAction_`, so an error becomes a notification. A form that saves must
+  list its fields in the action's `fields` parameter, because unchecked switches
+  and empty checkbox groups are not sent at all.
+- Settings save on change (`onSettingChange`); there is no Save button. Each
+  input's on-change action lists only its own field and keeps the default
+  spinner, so saves cannot overlap or overwrite each other. Footer buttons list
+  every field. A change that affects events sets `pendingChanges`, and the home
+  card asks for a sync.
+- Reset keeps `dedicatedCalendarId` and the list of calendars used, so a new
+  setup does not create a second Prayer Times calendar.
+- "primary" is another name for the user's main calendar. Compare calendar IDs
+  only after `canonicalCalendarId_`.
+- No emojis in UI text, code or docs. `test/static.test.js` and the fake
+  CardService check this.
+- Commits and pull requests carry no AI attribution.
 
-**Implementation:**
-- Vercel Cron job runs `/api/calendar/cleanup` every hour (or appropriate interval)
-- Cleanup logic:
-  1. Query users with `autoDeleteEvents: true`
-  2. For each user, fetch prayer events from Google Calendar
-  3. Based on `deleteEventsAfter` setting, calculate which events should be deleted
-  4. Delete events using Google Calendar API batch delete
-  5. Log cleanup operations in SyncLog with type 'cleanup'
-- Events are identified by title pattern `"[Prayer Name] Prayer"` and metadata
-- Only deletes events created by the app (matched by description or extended properties)
+## Testing
 
-### First-Time User Flow
-1. Landing page with "Sign in with Google"
-2. OAuth consent screen
-3. Redirect to setup wizard (8 steps):
-   - Welcome/explanation
-   - Search and select city
-   - Choose calculation method
-   - Configure reminders (multiple reminders supported, e.g., 30, 15, 5 minutes before)
-   - Customize event title (optional, default: "{prayer} Prayer")
-   - Configure auto-delete preferences (enable/disable, select timing)
-   - Select target calendar
-   - Review settings and perform first sync
-4. Redirect to dashboard
+- `test/helpers/load.js` runs the `.gs` files with `vm.runInThisContext`, one
+  shared global scope like Apps Script. Each test file is a separate process.
+- `test/helpers/card-service.js` is a strict fake CardService. It allows only the
+  classes and methods listed from `@types/google-apps-script` 2.0.14, checks
+  argument kinds and required fields, and rejects emojis.
+- `test/helpers/environment.js` fakes Properties, Cache, Lock, Utilities,
+  ScriptApp triggers, UrlFetchApp (with fake AlAdhan, Open-Meteo and Calendar
+  REST endpoints) and the advanced Calendar service, sharing one calendar store.
+  It rejects URLs that are not in the manifest's `urlFetchWhitelist`.
+- `test/flows.test.js` drives the cards like a user (`click`, `change`) with
+  `Date` mocked by `node:test`, so the 30-second budget can be tested.
+- `test/fixtures/live/` holds real AlAdhan and Open-Meteo responses captured on
+  4 November 2026; `test/live-fixtures.test.js` parses them. The other fixtures
+  are hand-written edge cases. AlAdhan needs `iso8601=true` (not `1`), and its
+  ISO times past midnight keep the day's own date.
 
-### Mobile-First Responsive Design
-- Mobile: 375px - 767px (single column layout)
-- Tablet: 768px - 1023px (two columns)
-- Desktop: 1024px+ (three columns max)
+CardService cannot run outside Google. Card rendering, real API responses,
+OAuth scopes and triggers must be tested in Google Calendar with a test
+deployment (README, "Install for testing").
 
-## Testing Strategy
+## Limits to keep in mind
 
-- **Unit tests**: All utility functions, API handlers, component logic
-- **Integration tests**: OAuth flow, Calendar API integration, database operations
-- **E2E tests** (Playwright): Complete user journey from signin → configure → sync
-- Target: 80%+ test coverage
-
-## Performance Requirements
-
-- Initial page load: < 2 seconds
-- API responses: < 1 second
-- Calendar sync operation: < 5 seconds
-- UI interactions: < 100ms (feel instant)
-- Smooth animations: 60fps
-
-## Accessibility Requirements
-
-- WCAG 2.1 AA compliance
-- Keyboard navigation support
-- ARIA labels on all interactive elements
-- Focus indicators visible
-- Color contrast ratio 4.5:1 minimum
-- Screen reader compatible
-
-## Development Phases
-
-**Phase 1 (MVP)**: Basic UI, Google OAuth, city search, manual sync, basic settings
-**Phase 2**: Auto-sync scheduling, multiple calculation methods, calendar selection, reminders
-**Phase 3**: Polish - animations, error handling, loading states, onboarding, accessibility
-**Phase 4 (Future)**: Qibla direction, mosque finder, prayer tracking, multi-language, PWA
-
-## Common Pitfalls to Avoid
-
-1. **Never expose API keys in frontend code** - always proxy through `/api/*` routes
-2. **Always validate user input** with Zod schemas before processing
-3. **Check for duplicate events** before creating calendar entries
-4. **Handle OAuth token refresh** automatically - don't let tokens expire silently
-5. **Implement rate limiting** on API routes to prevent abuse
-6. **Cache prayer times** appropriately - they don't change within a day
-7. **Test with multiple timezones** - prayer times are timezone-sensitive
-8. **Respect API rate limits**: Google Calendar (1M/day), Geoapify (3k/day)
-9. **Only delete events created by the app** - use extended properties or description patterns to identify app-created events during cleanup
-10. **Batch delete operations** when cleaning up events - use Google Calendar batch API to avoid rate limits
-
-## Browser Compatibility
-
-Support Chrome 90+, Firefox 88+, Safari 14+, Edge 90+, and modern mobile browsers (iOS Safari, Chrome Mobile).
+- Card actions: 30 seconds. Time-driven triggers: 6 minutes; add-ons may run
+  them at most once an hour. The add-on keeps one daily trigger per user.
+- CacheService: values up to 100 KB, kept at most 6 hours. User Properties:
+  9 KB per value.
+- Calendar API: about 10 parallel writes per batch with backoff on
+  `rateLimitExceeded`; `quotaExceeded` stops the run.
+- AlAdhan limits requests per IP (about 12 per second). Open-Meteo's free tier
+  is for non-commercial use and allows fewer than 10,000 calls a day; it needs
+  an attribution link next to location data, which the cards show.

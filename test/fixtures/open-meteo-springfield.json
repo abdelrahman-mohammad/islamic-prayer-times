@@ -1,0 +1,66 @@
+{
+  "results": [
+    {
+      "id": 1001,
+      "name": "Springfield",
+      "latitude": 39.80172,
+      "longitude": -89.64371,
+      "elevation": 182.0,
+      "feature_code": "PPLA",
+      "country_code": "US",
+      "admin1_id": 2001,
+      "admin2_id": 2002,
+      "timezone": "America/Chicago",
+      "population": 114394,
+      "postcodes": ["62701", "62702"],
+      "country_id": 6252001,
+      "country": "United States",
+      "admin1": "Illinois",
+      "admin2": "Sangamon"
+    },
+    {
+      "id": 1002,
+      "name": "Springfield",
+      "latitude": 37.21533,
+      "longitude": -93.29824,
+      "elevation": 396.0,
+      "feature_code": "PPLA2",
+      "country_code": "US",
+      "admin1_id": 2003,
+      "timezone": "America/Chicago",
+      "population": 169176,
+      "country_id": 6252001,
+      "country": "United States",
+      "admin1": "Missouri",
+      "admin2": "Greene"
+    },
+    {
+      "id": 1003,
+      "name": "Springfield",
+      "latitude": 42.10148,
+      "longitude": -72.58981,
+      "elevation": 21.0,
+      "feature_code": "PPLA2",
+      "country_code": "US",
+      "admin1_id": 2004,
+      "timezone": "America/New_York",
+      "population": 153606,
+      "country_id": 6252001,
+      "country": "United States",
+      "admin1": "Massachusetts",
+      "admin2": "Hampden"
+    },
+    {
+      "id": 1004,
+      "name": "Springfield",
+      "latitude": -27.6533,
+      "longitude": 152.9167,
+      "feature_code": "PPL",
+      "country_code": "AU",
+      "timezone": "Australia/Brisbane",
+      "country_id": 2077456,
+      "country": "Australia"
+    }
+  ],
+  "generationtime_ms": 0.91
+}
