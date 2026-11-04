@@ -8,6 +8,6 @@
     "test:timezones": "node test/run-in-timezones.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }
