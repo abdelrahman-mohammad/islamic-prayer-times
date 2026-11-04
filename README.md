@@ -1,272 +1,244 @@
-# Prayer Times Calendar 🕌
+# Prayer Times for Google Calendar
 
-A modern Next.js web application that automatically syncs Islamic prayer times to your Google Calendar with a beautiful glassmorphism UI.
+A Google Calendar add-on that adds the daily Islamic prayer times for your city
+to Google Calendar. It is built with Google Apps Script and CardService, and it
+uses two free APIs that need no account and no API key.
 
-![Next.js](https://img.shields.io/badge/Next.js-14+-black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.0+-38bdf8)
-![License](https://img.shields.io/badge/license-MIT-green)
+## Features
 
-## ✨ Features
+- **Two-step setup.** The add-on suggests a location from your calendar's time
+  zone. Choose it or search for your city, check the preferences, and select
+  **Add to my calendar**.
+- **Home card.** Today's prayer times, the next prayer and how long until it,
+  the Hijri date, and the Qibla direction.
+- **Many days at once.** Each sync fills the next 7, 14 or 30 days (30 by
+  default). With automatic updates on, a daily job at 3 AM local time adds the
+  next day and applies changed settings.
+- **City search.** Every result shows the city, region and country. You can
+  also paste coordinates from Google Maps.
+- **All AlAdhan calculation methods**, with one suggested for your country.
+- **Asr time**: Standard (Shafi, Maliki, Hanbali) or Hanafi.
+- **High latitude rule**: angle based, middle of the night, or one seventh of
+  the night.
+- **Minute adjustments** for each prayer, to match your local mosque.
+- **Choice of events**: Fajr, Dhuhr, Asr, Maghrib and Isha, plus Sunrise if you
+  want it.
+- **Jumu'ah** on Fridays, at the Dhuhr time or at a fixed time you set.
+- **Ramadan**: "Suhoor ends" (at Imsak) and "Iftar" (at Maghrib) events, with
+  a Hijri date adjustment of up to two days to follow your local moon sighting.
+- **Your own Prayer Times calendar** by default, so the events are easy to hide,
+  color or remove. You can use any calendar you own instead.
+- **Show as free** (on by default), a reminder at prayer time or earlier, and
+  the event length.
+- **Remove prayer events** deletes every event the add-on created, past and
+  future, and turns off automatic updates. Your own events are never touched.
 
-- **🔐 Google OAuth Authentication** - Secure sign-in with Google account
-- **📍 Location-Based Prayer Times** - Accurate prayer times based on your city
-- **📅 Google Calendar Integration** - Automatic sync to your preferred calendar
-- **🔔 Multiple Reminders** - Set multiple notification times for each prayer
-- **🎨 Beautiful Glassmorphism UI** - Modern Islamic-themed design
-- **🌙 Auto-Delete Past Events** - Keep your calendar clean automatically
-- **📱 Mobile Responsive** - Works perfectly on all devices
-- **⚡ Fast & Secure** - Serverless architecture with minimal data storage
+Settings save as soon as you change them. When a change affects your events, the
+home card says so, and **Sync now** applies it.
 
-## 🚀 Tech Stack
+## How it works
 
-### Frontend
-- **Next.js 14+** (App Router)
-- **TypeScript** for type safety
-- **Tailwind CSS** with custom glassmorphism
-- **React Query** for data fetching
-- **Framer Motion** for animations
-- **Zod** for validation
+| Need | Source | Notes |
+| --- | --- | --- |
+| Prayer times | [AlAdhan](https://aladhan.com/) calendar endpoint, `https://api.aladhan.com/v1/calendar/{year}/{month}` | One request per month, cached for 6 hours. |
+| City search | [Open-Meteo geocoding](https://open-meteo.com/en/docs/geocoding-api), `https://geocoding-api.open-meteo.com/v1/search` | Returns the time zone of each place. Cached for 6 hours. |
+| Qibla direction | Calculated in the add-on (great-circle bearing to the Kaaba) | No request. |
+| Calendar | Google Calendar API through the Apps Script advanced Calendar service and `UrlFetchApp.fetchAll` | |
 
-### Backend
-- **NextAuth.js** for authentication
-- **PostgreSQL** with Prisma ORM
-- **Vercel Serverless Functions**
-- **Google Calendar API**
+Prayer times are always calculated in the location's own time zone, and events
+are created at exact instants. They show correctly even when your calendar uses
+a different time zone.
 
-### External APIs
-- **Aladhan API** - Prayer time calculations
-- **Geoapify API** - City search and geocoding
-- **Google Calendar API** - Calendar management
+Every event the add-on creates carries private extended properties
+(`prayerTimeEvent`, `prayerName`, `prayerDate`, `prayerSig`). A sync compares
+the events that should exist with the events that carry these properties, and
+changes only the difference: it adds missing events, updates changed ones, and
+deletes ones that are no longer wanted. It never looks at event titles, so an
+event of yours named "Fajr Prayer" is safe.
 
-## 📋 Prerequisites
+## Install for testing
 
-Before you begin, ensure you have:
+You need a Google account and the Apps Script project that holds the add-on.
 
-1. **Node.js 18+** installed
-2. **PostgreSQL database** (Neon or Supabase recommended)
-3. **Google Cloud Console account** for OAuth setup
-4. **Geoapify API key** (free tier available)
+### With the Apps Script editor
 
-## 🛠️ Installation
+1. Open [script.google.com](https://script.google.com) and open the add-on's
+   project, or create a new project.
+2. In **Project Settings**, turn on **Show "appsscript.json" manifest file in
+   editor**.
+3. Upgrading from version 1? Delete the old files `Code.gs`, `PrayerTimes.gs`
+   and `Settings.gs` first, because the new files reuse some of those names.
+4. For each file in `src/`, create a script file with the same name and paste in
+   its content. Replace the content of `appsscript.json` with `src/appsscript.json`.
+5. Check that **Services** lists **Google Calendar API**. The manifest enables
+   it; if it is missing, add it with the **+** next to Services.
+6. Select **Deploy > Test deployments**, choose **Google Workspace add-on**, and
+   select **Install**.
+7. Open [Google Calendar](https://calendar.google.com), open the side panel on
+   the right, and select **Prayer Times**. Allow access when asked.
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/yourusername/prayer-times-calendar.git
-cd prayer-times-calendar
-```
-
-### 2. Install dependencies
-
-```bash
-npm install
-```
-
-### 3. Set up environment variables
-
-Copy `.env.example` to `.env.local` and fill in your credentials:
-
-```bash
-cp .env.example .env.local
-```
-
-Required environment variables:
-
-```env
-# Database
-DATABASE_URL="postgresql://..."
-
-# NextAuth
-NEXTAUTH_SECRET="your-secret-here"
-NEXTAUTH_URL="http://localhost:3000"
-
-# Google OAuth
-GOOGLE_CLIENT_ID="your-client-id"
-GOOGLE_CLIENT_SECRET="your-client-secret"
-
-# Geoapify
-GEOAPIFY_API_KEY="your-api-key"
-```
-
-### 4. Set up Google OAuth
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project or select existing
-3. Enable Google Calendar API
-4. Create OAuth 2.0 credentials:
-   - Application type: Web application
-   - Authorized redirect URIs:
-     - `http://localhost:3000/api/auth/callback/google` (development)
-     - `https://your-domain.com/api/auth/callback/google` (production)
-5. Copy Client ID and Client Secret to `.env.local`
-
-### 5. Set up database
+### With clasp
 
 ```bash
-# Generate Prisma client
-npx prisma generate
-
-# Run migrations
-npx prisma migrate dev
-
-# (Optional) Open Prisma Studio to view database
-npx prisma studio
+npm install -g @google/clasp
 ```
-
-### 6. Run the development server
 
 ```bash
-npm run dev
+clasp login
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the app.
-
-## 🏗️ Project Structure
-
-```
-prayer-times-calendar/
-├── app/                    # Next.js app router
-│   ├── (auth)/            # Authentication pages
-│   ├── (dashboard)/       # Protected pages
-│   ├── api/               # API routes
-│   └── page.tsx           # Landing page
-├── components/            # React components
-│   ├── ui/                # Reusable UI components
-│   ├── auth/              # Auth-related components
-│   ├── dashboard/         # Dashboard components
-│   └── setup/             # Setup wizard components
-├── lib/                   # Utilities and helpers
-│   ├── types/             # TypeScript types
-│   └── validations/       # Zod schemas
-├── hooks/                 # Custom React hooks
-├── prisma/                # Database schema
-└── public/                # Static assets
-```
-
-## 🔑 Key Features Implementation
-
-### Prayer Time Calculation Methods
-
-The app supports 5 different calculation methods:
-
-1. **ISNA** - Islamic Society of North America
-2. **MWL** - Muslim World League
-3. **Umm Al-Qura** - Saudi Arabia
-4. **Egyptian** - Egyptian General Authority
-5. **Karachi** - University of Islamic Sciences
-
-### Event Customization
-
-Users can customize:
-- **Event Title Template**: Use `{prayer}` placeholder (e.g., "🕌 {prayer}")
-- **Multiple Reminders**: Set multiple notification times
-- **Auto-Delete Options**:
-  - 30 minutes after prayer
-  - End of day
-  - End of week
-  - End of month
-
-### Security Features
-
-- OAuth 2.0 with PKCE flow
-- API keys never exposed to frontend
-- Minimal data storage (only user settings)
-- httpOnly cookies for secure sessions
-
-## 📝 API Routes
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/auth/*` | - | NextAuth.js endpoints |
-| `/api/prayers/times` | GET | Fetch prayer times |
-| `/api/cities/search` | GET | Search cities |
-| `/api/calendar/sync` | POST | Sync to Google Calendar |
-| `/api/calendar/list` | GET | List user's calendars |
-| `/api/settings` | GET/PUT/DELETE | Manage settings |
-| `/api/logs` | GET | Fetch sync history |
-
-## 🚀 Deployment
-
-### Deploy to Vercel
-
-1. Push your code to GitHub
-2. Import project in [Vercel](https://vercel.com)
-3. Add environment variables
-4. Deploy!
-
-### Setting up Cron Jobs
-
-Add to `vercel.json`:
+Create a file named `.clasp.json` in the repository root (it is in `.gitignore`)
+with your script ID, which is in **Project Settings** in the Apps Script editor:
 
 ```json
-{
-  "crons": [
-    {
-      "path": "/api/calendar/auto-sync",
-      "schedule": "0 1 * * *"
-    }
-  ]
-}
+{ "scriptId": "YOUR_SCRIPT_ID", "rootDir": "src" }
 ```
-
-## 🧪 Testing
 
 ```bash
-# Run unit tests
-npm test
-
-# Run E2E tests
-npm run test:e2e
-
-# Run linter
-npm run lint
-
-# Type checking
-npm run type-check
+clasp push
 ```
 
-## 📈 Performance
+`clasp push` replaces all files in the project with the files in `src/`. Then
+install the test deployment as in steps 6 and 7 above.
 
-- **Page Load**: < 2 seconds
-- **API Response**: < 1 second
-- **Calendar Sync**: < 5 seconds
-- **Lighthouse Score**: 90+ across all metrics
+### Publishing
 
-## 🤝 Contributing
+A test deployment needs nothing else. Before publishing to the Google Workspace
+Marketplace you also need a standard Google Cloud project with the Google
+Calendar API enabled, OAuth verification for the Calendar scopes, and your own
+logo URL in `addOns.common.logoUrl` (the manifest uses a generic calendar icon).
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Scopes
 
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+| Scope | Used for |
+| --- | --- |
+| `calendar.addons.execute` | Running as a Calendar add-on. |
+| `calendar.app.created` | Creating the add-on's own Prayer Times calendar. |
+| `calendar.events.owned` | Adding, updating and deleting prayer events in calendars you own. |
+| `calendar.calendarlist.readonly` | Listing your calendars in Settings. |
+| `calendar.settings.readonly` | Reading your calendar time zone and 12-hour or 24-hour clock. |
+| `script.external_request` | Calling AlAdhan, Open-Meteo and the Calendar API. |
+| `script.scriptapp` | Creating the daily automatic update. |
 
-## 📄 License
+The add-on does not use the broad `calendar` scope.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Privacy
 
-## 🙏 Acknowledgments
+- Settings are stored in User Properties, which belong to the signed-in user.
+  No user can read or change another user's settings, and no settings are shared
+  through Script Properties.
+- The add-on has no server and stores nothing outside Google.
+- AlAdhan receives the location's coordinates (rounded to 4 decimal places) and
+  calculation settings. Open-Meteo receives the text you type into the city
+  search, and the city name taken from your calendar's time zone, for the
+  suggestion.
 
-- [Aladhan API](https://aladhan.com) for prayer time calculations
-- [Geoapify](https://www.geoapify.com) for geocoding services
-- [Next.js](https://nextjs.org) for the amazing framework
-- [Vercel](https://vercel.com) for hosting and deployment
+## Data sources and their terms
 
-## 💬 Support
+These were checked in November 2026.
 
-For support, email support@prayertimescalendar.com or open an issue on GitHub.
+- **AlAdhan** (`api.aladhan.com`): free and needs no key. Its community forum
+  gives a rate limit of about 12 requests per second per IP address. The add-on
+  caches each month of times for 6 hours and retries briefly on HTTP 429 and
+  server errors.
+- **Open-Meteo geocoding** (`geocoding-api.open-meteo.com`): free for
+  non-commercial use, meaning private or non-profit apps without subscriptions or
+  advertising. The free tier allows fewer than 600 calls a minute, 5,000 an hour,
+  10,000 a day and 300,000 a month. The data is under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and needs a link
+  to Open-Meteo next to any location shown, which the cards include. The README
+  of the `open-meteo/geocoding-api` repository names CC BY-NC 4.0 instead, so
+  check both before any commercial use. If the add-on is ever sold or shows ads,
+  it needs a paid Open-Meteo plan.
+- **GeoNames**: the source of Open-Meteo's place data, under CC BY 4.0.
 
-## 🛣️ Roadmap
+Both APIs limit requests per IP address, and Apps Script shares its addresses
+with many other scripts. Open-Meteo's terms say that apps on shared platforms
+such as Google Sheets may be limited sooner. If the city search is busy, the
+add-on says so; entering coordinates works without Open-Meteo.
 
-- [ ] Multi-language support (Arabic, Urdu, Turkish)
-- [ ] Progressive Web App (PWA) for offline access
-- [ ] Browser push notifications
-- [ ] Qibla direction compass
-- [ ] Mosque finder integration
-- [ ] Prayer tracking statistics
+## Limits
 
----
+- A card action must finish within 30 seconds. A sync stops after about
+  22 seconds and saves its progress. If a first sync is cut short, the message
+  says so and **Sync now** finishes the rest.
+- Add-ons may run time-driven triggers at most once an hour. The add-on keeps a
+  single daily trigger per user, at 3 AM in the location's time zone.
+- The times are calculated, not taken from a mosque's timetable. Use the minute
+  adjustments to match your mosque.
+- The Hijri date is calculated. Use the Hijri date adjustment to match the moon
+  sighting where you live.
 
-Made with ❤️ for the Muslim community worldwide
+## Upgrading from version 1
+
+The first time version 2 runs for a user, it:
+
+- moves the old settings (location, method, reminder, event length, calendar)
+  to the new format. A 0-minute reminder now stays 0 minutes, where version 1
+  turned it into 30.
+- looks up the location's time zone, which version 1 did not store.
+- keeps automatic updates on if version 1's daily trigger existed, and replaces
+  that trigger with one at 3 AM in the location's time zone.
+- deletes the shared `GEOAPIFY_API_KEY` from Script Properties.
+- replaces version 1's events from today onward. Earlier events stay until you
+  use **Remove prayer events**.
+
+## Development
+
+The project needs only Node.js 22 or newer. There are no dependencies to install.
+
+```bash
+npm test
+```
+
+```bash
+npm run test:timezones
+```
+
+The second command runs the suite with the computer set to six different time
+zones, to show that nothing depends on the time zone of the machine.
+
+### What the tests cover
+
+- `test/core-*.test.js`: unit tests for the pure logic in `src/Core.gs`: dates,
+  times and time zones, AlAdhan and Open-Meteo parsing, URL building, the Qibla
+  bearing, method suggestions, settings migration and form parsing, event
+  building, and the sync plan.
+- `test/flows.test.js`: whole flows (setup, home card, settings, sync, search,
+  coordinates, migration, removal, reset, the daily trigger, rate limits and the
+  30-second budget) against fake Apps Script services and a strict fake
+  CardService.
+- `test/static.test.js`: the manifest, URL allowlists, scopes, emoji-free text,
+  and that the files load in any order.
+
+### What the tests cannot cover
+
+CardService and the other Apps Script services only run inside Google. The
+fakes follow the documented behavior, but they cannot show how a card renders,
+whether Google accepts every widget combination, or how the real APIs respond.
+AlAdhan and Open-Meteo could not be reached while this version was written, so
+the test fixtures follow their documented formats and were not captured from
+the live services. Test the add-on in Google Calendar before relying on it.
+
+## Project layout
+
+```
+src/
+  appsscript.json  Manifest: scopes, triggers, URL allowlists, advanced Calendar service
+  Code.gs          Entry points: homepage, daily trigger, card actions
+  Cards.gs         Card builders (CardService)
+  Sync.gs          Calendar sync, event removal, daily trigger
+  Services.gs      AlAdhan, Open-Meteo and Calendar calls, retries, caching
+  Settings.gs      User settings and sync state, version 1 migration
+  Core.gs          Pure logic with no Apps Script calls, unit tested
+test/
+  core-*.test.js   Unit tests
+  flows.test.js    Flow tests against fakes
+  static.test.js   Manifest and source checks
+  helpers/         Loader, fakes, synthetic AlAdhan data, time zone helpers
+  fixtures/        Hand-written API responses in the documented formats
+```
+
+## License
+
+MIT.
